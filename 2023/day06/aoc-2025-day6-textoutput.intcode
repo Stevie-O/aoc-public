@@ -10,8 +10,7 @@ rbo &auto__end
 @cpy &dists ~1
 @cpy &dists_end ~2
 @call &read_numbers
-eq race_count ~1 race_count_sanity_check_passed
-jf race_count_sanity_check_passed:0 &time_dist_mismatch_detected
+@jne race_count ~1 &time_dist_mismatch_detected
 
 solve_loop:
 add timeptr:times 0 ~1
@@ -30,7 +29,7 @@ out '\n'
 
 hlt
 
-@fn 1 win_race(timelimit, bestdist) local(windist, bsquared, fourac, sqrtval, mintime, sailtime, dist, maxtime) global(isqrt, lshr)
+@fn 1 win_race(timelimit, bestdist) local(windist, bsquared, fourac, sqrtval, mintime, sailtime, dist, maxtime) global(isqrt, lshr, unsolvable_input)
 
 # (timelimit +/- sqrt(timelimit * timelimit - 4 * bestdist)) / 2
 
@@ -40,6 +39,8 @@ add bestdist 1 windist
 mul timelimit timelimit bsquared
 mul -4 bestdist fourac
 add bsquared fourac ~1
+# if discriminant is less than 1, the puzzle is unsolvable (it might even be unsolvable *at* 1, I'm not sure)
+@jlt ~1 1 &unsolvable_input
 @call &isqrt
 mul ~1 -1 sqrtval
 add timelimit sqrtval ~1
@@ -103,6 +104,8 @@ eol:
 # ignore input lines with no numbers in them
 add numcount digcount line_not_blank
 jf line_not_blank:0 &seek_digit
+# if digcount is 0 there was extra noise (like \r) after the last digit
+jf digcount &finis
 @cpy &finis continue_target
 # okay, we just read a value. store it in the buffer
 
@@ -267,9 +270,14 @@ time_dist_mismatch_detected:
 @cpy &str_time_dist_mismatch errmsg_ptr
 @jmp &die_with_message
 
+unsolvable_input:
+@cpy &str_unsolvable_input errmsg_ptr
+@jmp &die_with_message
+
 @str str_overflow_detected:"Integer overflow detected\n"
 @str str_too_many_races:"Too many races input\n"
 @str str_time_dist_mismatch:"Number of times does not match number of distances\n"
+@str str_unsolvable_input:"Unsolvable input detected\n"
 
 @raw 	race_count:0 answer_accum:1
 # arbitrary limit of 10 races
