@@ -97,8 +97,9 @@ next_number:
 @cpy 0 accum
 @cpy 0 digcount
 seek_digit: in intmp
-eq intmp '\n' is_eol
-jt is_eol:0 &eol
+@jeq intmp '\n' &eol
+#eq intmp '\n' is_eol
+#jt is_eol:0 &eol
 lt intmp '0' is_nondigit
 jt is_nondigit:0 &nondigit
 lt intmp ':' is_digit

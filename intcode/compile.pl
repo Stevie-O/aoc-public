@@ -173,6 +173,16 @@ sub compile {
       $str =~ s/\\(.)/$str_escape{$1} \/\/ die "unknown str escape for $1"/ge;
       return '@raw '.(defined $label ? "$label:" : "").join(" ", length($str), map {ord($_)} split(//,$str));
     },
+    jeq => sub {
+      my ($line) = @_;
+      die "\@jeq line invalid: $line" unless $line =~ /^\@jeq\s+(\S+)\s+(\S+)\s+(\S+)\s*$/;
+      my ($cmp1, $cmp2, $target) = ($1, $2, $3);
+	  my $label = "condresult".$gen_uid->();
+	  return (
+		"eq $cmp1 $cmp2 $label",
+		"jt $label:0 $target"
+		);
+    },
   );
 
   for (my $line_i=0; $line_i<@lines; $line_i++) {
