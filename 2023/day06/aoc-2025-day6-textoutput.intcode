@@ -11,13 +11,13 @@ dists_end:
 start:
 
 # read input
-add 0 &times ~1
-add 0 &times_end ~2
+@cpy &times ~1
+@cpy &times_end ~2
 @call &read_numbers
-add 0 ~1 race_count
+@cpy ~1 race_count
 
-add 0 &dists ~1
-add 0 &dists_end ~2
+@cpy &dists ~1
+@cpy &dists_end ~2
 @call &read_numbers
 eq race_count ~1 race_count_sanity_check_passed
 jf race_count_sanity_check_passed:0 &time_dist_mismatch_detected
@@ -89,13 +89,13 @@ add maxtime return0 return0
 
 @fn 1 read_numbers(buffer, endbuffer) local(accum, numcount, digcount, intmp) global(part2, overflow_detected, too_many_races_detected)
 
-add 0 0 numcount
-add 0 buffer outdest
-add 0 &next_number continue_target
+@cpy 0 numcount
+@cpy buffer outdest
+@cpy &next_number continue_target
 
 next_number:
-add 0 0 accum
-add 0 0 digcount
+@cpy 0 accum
+@cpy 0 digcount
 seek_digit: in intmp
 eq intmp '\n' is_eol
 jt is_eol:0 &eol
@@ -114,14 +114,14 @@ eol:
 # ignore input lines with no numbers in them
 add numcount digcount line_not_blank
 jf line_not_blank:0 &seek_digit
-add 0 &finis continue_target
+@cpy &finis continue_target
 # okay, we just read a value. store it in the buffer
 
 number_finished:
 lt outdest endbuffer not_buffer_exceeded
 jf not_buffer_exceeded:0 &too_many_races_detected
 
-add 0 accum outdest:*0
+@cpy accum outdest:*0
 add 1 outdest outdest
 add 1 numcount numcount
 jf 0 continue_target:&next_number
@@ -139,7 +139,7 @@ jf 0 &overflow_detected
 
 finis:
 
-add 0 numcount return0
+@cpy numcount return0
 
 @endfn
 
@@ -167,14 +167,14 @@ exitfun:
 @fn 1 lshr(n) global(shr_impl)
 lt n 2 ans_zero
 jf ans_zero:0 &no_shortcuts
-add 0 0 return0
+@cpy 0 return0
 jf 0 &exitfun
 no_shortcuts:
 # n >= 2
-add 0 n ~1
-add 0 1 ~2
+@cpy n ~1
+@cpy 1 ~2
 @call &shr_impl
-add 0 ~2 return0
+@cpy ~2 return0
 exitfun:
 @endfn
 
@@ -189,7 +189,7 @@ jf mask &overflow_detected
 lt n ~2 found_top_bit
 jf found_top_bit:0 &keep_recursing
 add n 0 ~1
-add 0 0 ~2
+@cpy 0 ~2
 add 1 0 ~3
 jf 0 &end_recursion
 keep_recursing:
@@ -217,8 +217,8 @@ add ret3 0 return2
 # changing this to support negatives would be easy but I don't need it
 @fn 0 print_decimal(n) global(print_next_decimal_digit)
 jf n &print_zero
-add 0 n ~1
-add 0 1 ~2
+@cpy n ~1
+@cpy 1 ~2
 @call &print_next_decimal_digit
 jf 0 &exitfun
 print_zero: out '0'
@@ -230,7 +230,7 @@ exitfun:
 # PRECONDITIONS: n >= mask, mask is a power of 10
 # POSTCONDITIONS: upon return, ~1 has all powers of 10 greater than mask removed
 
-add 0 n ~1
+@cpy n ~1
 lt n mask found_first_digit
 jt found_first_digit:0 &exitfn
 
@@ -258,7 +258,7 @@ add n 0 return0
 @raw errmsg_ptr:0 strlen:0 tmpchar:0
 die_with_message:
 # @str puts a length prefix
-add 0 errmsg_ptr read_strlen
+@cpy errmsg_ptr read_strlen
 add read_strlen:*0 0 strlen
 add 1 errmsg_ptr errmsg_reader
 message_print_loop:
