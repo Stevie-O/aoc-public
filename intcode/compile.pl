@@ -65,6 +65,21 @@ sub compile {
 
   my $_cur_uid = 0;
   my $gen_uid = sub { ++$_cur_uid };
+  
+  my $condjump_microcode = sub {
+		my ($name, $cmpinstr, $jmpinstr, $argswap) = @_;
+		return sub {
+			my ($line) = @_;
+			die "\@$name line invalid: $line" unless $line =~ /^\@$name\s+(\S+)\s+(\S+)\s+(\S+)\s*$/;
+			my ($cmp1, $cmp2, $target) = ($1, $2, $3);
+			my $label = "condresult".$gen_uid->();
+			if ($argswap) { ($cmp1, $cmp2) = ($cmp2, $cmp1); }
+			return (
+				"$cmpinstr $cmp1 $cmp2 $label",
+				"$jmpinstr $label:0 $target"
+			)
+		};	
+  };
 
   my %macro = (
     fn => sub {
@@ -173,16 +188,14 @@ sub compile {
       $str =~ s/\\(.)/$str_escape{$1} \/\/ die "unknown str escape for $1"/ge;
       return '@raw '.(defined $label ? "$label:" : "").join(" ", length($str), map {ord($_)} split(//,$str));
     },
-    jeq => sub {
-      my ($line) = @_;
-      die "\@jeq line invalid: $line" unless $line =~ /^\@jeq\s+(\S+)\s+(\S+)\s+(\S+)\s*$/;
-      my ($cmp1, $cmp2, $target) = ($1, $2, $3);
-	  my $label = "condresult".$gen_uid->();
-	  return (
-		"eq $cmp1 $cmp2 $label",
-		"jt $label:0 $target"
-		);
-    },
+	jeq => $condjump_microcode->('jeq', 'eq', 'jt', 0), # jump if a=b
+	jne => $condjump_microcode->('jne', 'eq', 'jf', 0), # jump if not (a=b)
+
+	jlt => $condjump_microcode->('jlt', 'lt', 'jt', 0), # jump if a<b
+	jgt => $condjump_microcode->('jgt', 'lt', 'jt', 1), # jump if (a>b) means jump if (b<a)
+
+	jge => $condjump_microcode->('jge', 'lt', 'jf', 0), # jump if not(a<b)
+	jle => $condjump_microcode->('jle', 'lt', 'jf', 1), # jump if (a <= b) means jump if (b >= a)
   );
 
   for (my $line_i=0; $line_i<@lines; $line_i++) {
