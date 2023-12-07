@@ -5,7 +5,7 @@ use warnings FATAL => 'all';
 use Getopt::Long;
 
 my %opt;
-die unless GetOptions(\%opt, 'trace', 'labels');
+die unless GetOptions(\%opt, 'trace', 'labels', 'randomize');
 
 local $/;
 my $asm = <>;
@@ -18,6 +18,8 @@ if ($opt{labels}) {
   warn "\n";
 }
 print join(",", @$bytecode)."\n";
+
+sub flipcoin() { !($opt{randomize}) || rand()<.5 }
 
 sub compile {
   my ($asm, $opt) = @_;
@@ -154,14 +156,14 @@ sub compile {
       my ($line) = @_;
       die "\@cpy line invalid: $line" unless $line =~ /^\@cpy\s+(\S+)\s+(\S+)\s*$/;
       my ($src, $dst) = ($1, $2);
-      my ($op, $arg) = rand()<.5 ? ("add",0) : ("mul",1);
-      return rand()<.5 ? "$op $src $arg $dst" : "$op $arg $src $dst";
+      my ($op, $arg) = flipcoin() ? ("add",0) : ("mul",1);
+      return flipcoin() ? "$op $src $arg $dst" : "$op $arg $src $dst";
     },
     jmp => sub {
       my ($line) = @_;
       die unless $line =~ /^\@jmp\s+(\S+)\s*$/;
       my ($addr) = ($1);
-      my ($op, $arg) = rand()<.5 ? ("jt",1) : ("jf",0);
+      my ($op, $arg) = flipcoin() ? ("jt",1) : ("jf",0);
       return "$op $arg $addr";
     },
     str => sub {
