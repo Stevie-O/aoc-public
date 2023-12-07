@@ -1,14 +1,5 @@
 add part2:0 0 dummy:dummy
 rbo &auto__end
-@jmp &start
-@raw 	race_count:0 answer_accum:1
-# arbitrary limit of 10 races
-@raw times: 0 0 0 0 0 0 0 0 0 0
-times_end:
-@raw dists: 0 0 0 0 0 0 0 0 0 0
-dists_end:
-
-start:
 
 # read input
 @cpy &times ~1
@@ -265,17 +256,24 @@ jt strlen &message_print_loop
 hlt
 
 overflow_detected:
-add &str_overflow_detected 0 errmsg_ptr
+@cpy &str_overflow_detected errmsg_ptr
 @jmp &die_with_message
 
 too_many_races_detected:
-add &str_too_many_races 0 errmsg_ptr
+@cpy &str_too_many_races errmsg_ptr
 @jmp &die_with_message
 
 time_dist_mismatch_detected:
-add &str_time_dist_mismatch 0 errmsg_ptr
+@cpy &str_time_dist_mismatch errmsg_ptr
 @jmp &die_with_message
 
 @str str_overflow_detected:"Integer overflow detected\n"
 @str str_too_many_races:"Too many races input\n"
 @str str_time_dist_mismatch:"Number of times does not match number of distances\n"
+
+@raw 	race_count:0 answer_accum:1
+# arbitrary limit of 10 races
+@raw times: 0 0 0 0 0 0 0 0 0 0
+times_end:
+@raw dists: 0 0 0 0 0 0 0 0 0 0
+dists_end:
