@@ -1,0 +1,287 @@
+add part2:0 0 dummy:dummy
+rbo &auto__end
+jf 0 &start
+@raw 	race_count:0 answer_accum:1
+# arbitrary limit of 10 races
+@raw times: 0 0 0 0 0 0 0 0 0 0
+times_end:
+@raw dists: 0 0 0 0 0 0 0 0 0 0
+dists_end:
+
+start:
+
+# read input
+add 0 &times ~1
+add 0 &times_end ~2
+@call &read_numbers
+add 0 ~1 race_count
+
+add 0 &dists ~1
+add 0 &dists_end ~2
+@call &read_numbers
+eq race_count ~1 race_count_sanity_check_passed
+jf race_count_sanity_check_passed:0 &time_dist_mismatch_detected
+
+solve_loop:
+add timeptr:times 0 ~1
+add distptr:dists 0 ~2
+@call &win_race
+mul ~1 answer_accum answer_accum
+add -1 race_count race_count
+add 1 timeptr timeptr
+add 1 distptr distptr
+jt race_count &solve_loop
+
+#out answer_accum
+add answer_accum 0 ~1
+@call &print_decimal
+out '\n'
+
+hlt
+
+@fn 1 win_race(timelimit, bestdist) local(windist, bsquared, fourac, sqrtval, mintime, sailtime, dist, maxtime) global(isqrt, lshr)
+
+# (timelimit +/- sqrt(timelimit * timelimit - 4 * bestdist)) / 2
+
+# to win we need at least 1 more than bestdist
+add bestdist 1 windist
+
+mul timelimit timelimit bsquared
+mul -4 bestdist fourac
+add bsquared fourac ~1
+@call &isqrt
+mul ~1 -1 sqrtval
+add timelimit sqrtval ~1
+# divide by two
+@call &lshr
+add ~1 0 mintime
+
+
+# find the first button-press time that wins
+guess_and_check_min:
+mul mintime -1 negmintime
+add timelimit negmintime:0 sailtime
+mul mintime sailtime dist
+lt dist windist not_first_winner
+jf not_first_winner:0 &found_mintime
+add mintime 1 mintime
+jf 0 &guess_and_check_min
+found_mintime:
+
+# find the first time after mintime that the button-press time does *not* win
+# protip: sailing 'sailtime' DOES win, for the same reason sailing 'mintime'
+add sailtime 0 maxtime
+
+guess_and_check_max:
+mul maxtime -1 negmaxtime
+add timelimit negmaxtime:0 sailtime
+mul maxtime sailtime dist
+lt dist windist not_max_winner
+jt not_max_winner:0 &found_maxtime
+add maxtime 1 maxtime
+jf 0 &guess_and_check_max
+found_maxtime:
+
+mul mintime -1 return0
+add maxtime return0 return0
+
+@endfn
+
+@fn 1 read_numbers(buffer, endbuffer) local(accum, numcount, digcount, intmp) global(part2, overflow_detected, too_many_races_detected)
+
+add 0 0 numcount
+add 0 buffer outdest
+add 0 &next_number continue_target
+
+next_number:
+add 0 0 accum
+add 0 0 digcount
+seek_digit: in intmp
+eq intmp '\n' is_eol
+jt is_eol:0 &eol
+lt intmp '0' is_nondigit
+jt is_nondigit:0 &nondigit
+lt intmp ':' is_digit
+jt is_digit:0 &process_digit
+nondigit:
+# if we're in part 2, all the digits are grouped together
+jt part2 &seek_digit
+# if there have not been any digits read, keep reading
+jf digcount &seek_digit
+jf 0 &number_finished
+
+eol:
+# ignore input lines with no numbers in them
+add numcount digcount line_not_blank
+jf line_not_blank:0 &seek_digit
+add 0 &finis continue_target
+# okay, we just read a value. store it in the buffer
+
+number_finished:
+lt outdest endbuffer not_buffer_exceeded
+jf not_buffer_exceeded:0 &too_many_races_detected
+
+add 0 accum outdest:*0
+add 1 outdest outdest
+add 1 numcount numcount
+jf 0 continue_target:&next_number
+
+process_digit:
+add accum 0 accum_overflowcheck
+add 1 digcount digcount
+add -'0' intmp intmp
+mul 10 accum accum
+add accum intmp accum
+
+lt accum_overflowcheck:0 accum no_wraparound_detected
+jt no_wraparound_detected:0 &seek_digit
+jf 0 &overflow_detected
+
+finis:
+
+add 0 numcount return0
+
+@endfn
+
+@fn 1 isqrt(n) local(tmp, ans) global(lshr)
+
+# this relies on the fact that 'n' and 'return0' are the same storage location
+# if n < 2 return n
+lt n 2 n_lt_2_cond
+jt n_lt_2_cond:0 &exitfun
+
+add n 0 ~1
+@call &lshr
+@call &lshr
+@call &isqrt
+mul ~1 2 ans
+add ans 1 ans
+mul ans ans tmp
+lt n tmp undo
+mul undo -1 undo
+add ans undo:0 return0
+exitfun:
+@endfn 
+
+# logical (unsigned) shift-right one bit
+@fn 1 lshr(n) global(shr_impl)
+lt n 2 ans_zero
+jf ans_zero:0 &no_shortcuts
+add 0 0 return0
+jf 0 &exitfun
+no_shortcuts:
+# n >= 2
+add 0 n ~1
+add 0 1 ~2
+@call &shr_impl
+add 0 ~2 return0
+exitfun:
+@endfn
+
+@fn 3 shr_impl(n, mask) local(ret1, ret2, ret3) global(overflow_detected)
+
+
+# PRECONDITIONS: n >= mask, mask is a power of 2
+# POSTCONDITIONS: upon return, ~1 has all bits greater than mask removed; ~2 is those same bits shifted right by one bit; ~3 is *0* if and only if <mask1> was set
+
+add mask mask ~2
+jf mask &overflow_detected
+lt n ~2 found_top_bit
+jf found_top_bit:0 &keep_recursing
+add n 0 ~1
+add 0 0 ~2
+add 1 0 ~3
+jf 0 &end_recursion
+keep_recursing:
+add n 0 ~1
+# ~2 is already set up
+@call &shr_impl
+end_recursion:
+jt ~3 &nextbit_not_set
+add ~2 mask ~2
+nextbit_not_set: add ~2 0 ret2
+lt ~1 mask ret3
+jt ret3 &bit_is_not_set
+mul mask -1 mask_remover
+add ~1 mask_remover:0 ~1
+bit_is_not_set:
+add ~1 0 ret1
+
+add ret1 0 return0
+add ret2 0 return1
+add ret3 0 return2
+
+@endfn
+
+# print nonnegative decimal number (negative numbers will not be printed)
+# changing this to support negatives would be easy but I don't need it
+@fn 0 print_decimal(n) global(print_next_decimal_digit)
+jf n &print_zero
+add 0 n ~1
+add 0 1 ~2
+@call &print_next_decimal_digit
+jf 0 &exitfun
+print_zero: out '0'
+exitfun:
+@endfn
+
+@fn 1 print_next_decimal_digit(n, mask) local(dig, negmask)
+
+# PRECONDITIONS: n >= mask, mask is a power of 10
+# POSTCONDITIONS: upon return, ~1 has all powers of 10 greater than mask removed
+
+add 0 n ~1
+lt n mask found_first_digit
+jt found_first_digit:0 &exitfn
+
+mul mask 10 ~2
+@call &print_next_decimal_digit
+add ~1 0 n
+
+mul mask -1 negmask
+add '0' 0 dig
+compute_digit: lt n mask computed_digit
+jt computed_digit:0 &done_compute_digit
+add dig 1 dig
+add n negmask n
+jf 0 &compute_digit
+done_compute_digit:
+
+out dig
+
+exitfn:
+add n 0 return0
+@endfn
+
+
+
+@raw errmsg_ptr:0 strlen:0 tmpchar:0
+die_with_message:
+# @str puts a length prefix
+add 0 errmsg_ptr read_strlen
+add read_strlen:*0 0 strlen
+add 1 errmsg_ptr errmsg_reader
+message_print_loop:
+add errmsg_reader:*0 0 tmpchar
+add errmsg_reader 1 errmsg_reader
+out tmpchar
+add strlen -1 strlen
+jt strlen &message_print_loop
+hlt
+
+overflow_detected:
+add &str_overflow_detected 0 errmsg_ptr
+jf 0 &die_with_message
+
+too_many_races_detected:
+add &str_too_many_races 0 errmsg_ptr
+jf 0 &die_with_message
+
+time_dist_mismatch_detected:
+add &str_time_dist_mismatch 0 errmsg_ptr
+jf 0 &die_with_message
+
+@str str_overflow_detected:"Integer overflow detected\n"
+@str str_too_many_races:"Too many races input\n"
+@str str_time_dist_mismatch:"Number of times does not match number of distances\n"
+
