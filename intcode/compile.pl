@@ -42,6 +42,7 @@ sub compile {
   my %str_escape = (
     '\\' => "\\",
     'n'  => "\n",
+	'r'  => "\r",
     't'  => "\t",
     '"' => '"',
     "'" => "'",
@@ -278,6 +279,7 @@ sub compile {
           $out_vals[$i] = "LABEL";
           push @{$label_uses{$label}}, @compiled + $i;
         } else {
+				print STDERR "in_vals: ", join(', ', map "[$_]", @in_vals), "\n";
           die "unrecognized value <$in_vals[$i]> at index $i of line: $line";
         }
 

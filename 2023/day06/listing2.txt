@@ -1,0 +1,512 @@
+[36m     0 add part2:0 0 dummy:dummy[0m
+[36m     4 rbo &auto__end[0m
+[1;31m@cpy &times ~1[0m
+[36m     6 add &times 0 ~1[0m
+[1;31m@cpy &times_end ~2[0m
+[36m    10 add &times_end 0 ~2[0m
+[1;31m@call &read_numbers[0m
+[1;31m@cpy &retaddr1 ~0[0m
+[36m    14 add &retaddr1 0 ~0[0m
+[1;31m@jmp &read_numbers[0m
+[36m    18 jt 1 &read_numbers[0m
+[36m    21 retaddr1:[0m
+[1;31m@cpy ~1 race_count[0m
+[36m    21 add ~1 0 race_count[0m
+[1;31m@cpy &dists ~1[0m
+[36m    25 add &dists 0 ~1[0m
+[1;31m@cpy &dists_end ~2[0m
+[36m    29 add &dists_end 0 ~2[0m
+[1;31m@call &read_numbers[0m
+[1;31m@cpy &retaddr2 ~0[0m
+[36m    33 add &retaddr2 0 ~0[0m
+[1;31m@jmp &read_numbers[0m
+[36m    37 jt 1 &read_numbers[0m
+[36m    40 retaddr2:[0m
+[1;31m@jne race_count ~1 &time_dist_mismatch_detected[0m
+[36m    40 eq race_count ~1 condresult3[0m
+[36m    44 jf condresult3:0 &time_dist_mismatch_detected[0m
+[36m    47 solve_loop:[0m
+[36m    47 add timeptr:times 0 ~1[0m
+[36m    51 add distptr:dists 0 ~2[0m
+[1;31m@call &win_race[0m
+[1;31m@cpy &retaddr4 ~0[0m
+[36m    55 add &retaddr4 0 ~0[0m
+[1;31m@jmp &win_race[0m
+[36m    59 jt 1 &win_race[0m
+[36m    62 retaddr4:[0m
+[36m    62 mul ~1 answer_accum answer_accum[0m
+[36m    66 add -1 race_count race_count[0m
+[36m    70 add 1 timeptr timeptr[0m
+[36m    74 add 1 distptr distptr[0m
+[36m    78 jt race_count &solve_loop[0m
+[1;31m@cpy answer_accum ~1[0m
+[36m    81 add answer_accum 0 ~1[0m
+[1;31m@call &print_decimal[0m
+[1;31m@cpy &retaddr5 ~0[0m
+[36m    85 add &retaddr5 0 ~0[0m
+[1;31m@jmp &print_decimal[0m
+[36m    89 jt 1 &print_decimal[0m
+[36m    92 retaddr5:[0m
+[36m    92 out '\n'[0m
+[36m    94 hlt[0m
+[1;31m@fn 1 win_race(timelimit, bestdist) local(windist, bsquared, fourac, sqrtval, mintime, sailtime, dist, maxtime) global(isqrt, lshr, unsolvable_input)[0m
+[36m    95 rbo 11[0m
+[36m    97 add bestdist 1 windist[0m
+[36m   101 mul timelimit timelimit bsquared[0m
+[36m   105 mul -4 bestdist fourac[0m
+[36m   109 add bsquared fourac ~1[0m
+[1;31m@jlt ~1 1 &unsolvable_input[0m
+[36m   113 lt ~1 1 condresult6[0m
+[36m   117 jt condresult6:0 &unsolvable_input[0m
+[1;31m@call &isqrt[0m
+[1;31m@cpy &retaddr7 ~0[0m
+[36m   120 add &retaddr7 0 ~0[0m
+[1;31m@jmp &isqrt[0m
+[36m   124 jt 1 &isqrt[0m
+[36m   127 retaddr7:[0m
+[36m   127 mul ~1 -1 sqrtval[0m
+[36m   131 add timelimit sqrtval ~1[0m
+[1;31m@call &lshr[0m
+[1;31m@cpy &retaddr8 ~0[0m
+[36m   135 add &retaddr8 0 ~0[0m
+[1;31m@jmp &lshr[0m
+[36m   139 jt 1 &lshr[0m
+[36m   142 retaddr8:[0m
+[1;31m@cpy ~1 mintime[0m
+[36m   142 add ~1 0 mintime[0m
+[36m   146 guess_and_check_min:[0m
+[36m   146 mul mintime -1 negmintime[0m
+[36m   150 add timelimit negmintime:0 sailtime[0m
+[36m   154 mul mintime sailtime dist[0m
+[36m   158 lt dist windist not_first_winner[0m
+[36m   162 jf not_first_winner:0 &found_mintime[0m
+[36m   165 add mintime 1 mintime[0m
+[1;31m@jmp &guess_and_check_min[0m
+[36m   169 jt 1 &guess_and_check_min[0m
+[36m   172 found_mintime:[0m
+[1;31m@cpy sailtime maxtime[0m
+[36m   172 add sailtime 0 maxtime[0m
+[36m   176 guess_and_check_max:[0m
+[36m   176 mul maxtime -1 negmaxtime[0m
+[36m   180 add timelimit negmaxtime:0 sailtime[0m
+[36m   184 mul maxtime sailtime dist[0m
+[36m   188 lt dist windist not_max_winner[0m
+[36m   192 jt not_max_winner:0 &found_maxtime[0m
+[36m   195 add maxtime 1 maxtime[0m
+[1;31m@jmp &guess_and_check_max[0m
+[36m   199 jt 1 &guess_and_check_max[0m
+[36m   202 found_maxtime:[0m
+[36m   202 mul mintime -1 return0[0m
+[36m   206 add maxtime return0 return0[0m
+[1;31m@endfn[0m
+[36m   210 rbo -11[0m
+[1;31m@jmp ~0[0m
+[36m   212 jt 1 ~0[0m
+[1;31m@fn 1 read_numbers(buffer, endbuffer) local(accum, numcount, digcount, intmp) global(part2, overflow_detected, too_many_races_detected)[0m
+[36m   215 rbo 7[0m
+[1;31m@cpy 0 numcount[0m
+[36m   217 add 0 0 numcount[0m
+[1;31m@cpy buffer outdest[0m
+[36m   221 add buffer 0 outdest[0m
+[1;31m@cpy &next_number continue_target[0m
+[36m   225 add &next_number 0 continue_target[0m
+[36m   229 next_number:[0m
+[1;31m@cpy 0 accum[0m
+[36m   229 add 0 0 accum[0m
+[1;31m@cpy 0 digcount[0m
+[36m   233 add 0 0 digcount[0m
+[36m   237 seek_digit: in intmp[0m
+[1;31m@jeq intmp '\n' &eol[0m
+[36m   239 eq intmp '\n' condresult9[0m
+[36m   243 jt condresult9:0 &eol[0m
+[1;31m@jlt intmp '0' &nondigit[0m
+[36m   246 lt intmp '0' condresult10[0m
+[36m   250 jt condresult10:0 &nondigit[0m
+[1;31m@jle intmp '9' &process_digit[0m
+[36m   253 lt '9' intmp condresult11[0m
+[36m   257 jf condresult11:0 &process_digit[0m
+[36m   260 nondigit:[0m
+[36m   260 jt part2 &seek_digit[0m
+[36m   263 jf digcount &seek_digit[0m
+[1;31m@jmp &number_finished[0m
+[36m   266 jt 1 &number_finished[0m
+[36m   269 eol:[0m
+[36m   269 add numcount digcount line_not_blank[0m
+[36m   273 jf line_not_blank:0 &seek_digit[0m
+[36m   276 jf digcount &finis[0m
+[1;31m@cpy &finis continue_target[0m
+[36m   279 add &finis 0 continue_target[0m
+[36m   283 number_finished:[0m
+[1;31m@jge outdest endbuffer &too_many_races_detected[0m
+[36m   283 lt outdest endbuffer condresult12[0m
+[36m   287 jf condresult12:0 &too_many_races_detected[0m
+[1;31m@cpy accum outdest:*0[0m
+[36m   290 add accum 0 outdest:*0[0m
+[36m   294 add 1 outdest outdest[0m
+[36m   298 add 1 numcount numcount[0m
+[1;31m@jmp continue_target:&next_number[0m
+[36m   302 jt 1 continue_target:&next_number[0m
+[36m   305 process_digit:[0m
+[1;31m@cpy accum accum_overflowcheck[0m
+[36m   305 add accum 0 accum_overflowcheck[0m
+[36m   309 add 1 digcount digcount[0m
+[36m   313 add -'0' intmp intmp[0m
+[36m   317 mul 10 accum accum[0m
+[36m   321 add accum intmp accum[0m
+[1;31m@jle accum accum_overflowcheck:0 &overflow_detected[0m
+[36m   325 lt accum_overflowcheck:0 accum condresult13[0m
+[36m   329 jf condresult13:0 &overflow_detected[0m
+[1;31m@jmp &seek_digit[0m
+[36m   332 jt 1 &seek_digit[0m
+[36m   335 finis:[0m
+[1;31m@cpy numcount return0[0m
+[36m   335 add numcount 0 return0[0m
+[1;31m@endfn[0m
+[36m   339 rbo -7[0m
+[1;31m@jmp ~0[0m
+[36m   341 jt 1 ~0[0m
+[1;31m@fn 1 isqrt(n) local(tmp, ans) global(lshr)[0m
+[36m   344 rbo 4[0m
+[1;31m@jlt n 2 &exitfun[0m
+[36m   346 lt n 2 condresult14[0m
+[36m   350 jt condresult14:0 &exitfun[0m
+[1;31m@cpy n ~1[0m
+[36m   353 add n 0 ~1[0m
+[1;31m@call &lshr[0m
+[1;31m@cpy &retaddr15 ~0[0m
+[36m   357 add &retaddr15 0 ~0[0m
+[1;31m@jmp &lshr[0m
+[36m   361 jt 1 &lshr[0m
+[36m   364 retaddr15:[0m
+[1;31m@call &lshr[0m
+[1;31m@cpy &retaddr16 ~0[0m
+[36m   364 add &retaddr16 0 ~0[0m
+[1;31m@jmp &lshr[0m
+[36m   368 jt 1 &lshr[0m
+[36m   371 retaddr16:[0m
+[1;31m@call &isqrt[0m
+[1;31m@cpy &retaddr17 ~0[0m
+[36m   371 add &retaddr17 0 ~0[0m
+[1;31m@jmp &isqrt[0m
+[36m   375 jt 1 &isqrt[0m
+[36m   378 retaddr17:[0m
+[36m   378 mul ~1 2 ans[0m
+[36m   382 add ans 1 ans[0m
+[36m   386 mul ans ans tmp[0m
+[36m   390 lt n tmp undo[0m
+[36m   394 mul undo -1 undo[0m
+[36m   398 add ans undo:0 return0[0m
+[36m   402 exitfun:[0m
+[1;31m@endfn[0m
+[36m   402 rbo -4[0m
+[1;31m@jmp ~0[0m
+[36m   404 jt 1 ~0[0m
+[1;31m@fn 1 lshr(n) global(shr_impl)[0m
+[36m   407 rbo 2[0m
+[1;31m@jge n 2 &no_shortcuts[0m
+[36m   409 lt n 2 condresult18[0m
+[36m   413 jf condresult18:0 &no_shortcuts[0m
+[1;31m@cpy 0 return0[0m
+[36m   416 add 0 0 return0[0m
+[1;31m@jmp &exitfun[0m
+[36m   420 jt 1 &exitfun[0m
+[36m   423 no_shortcuts:[0m
+[1;31m@cpy n ~1[0m
+[36m   423 add n 0 ~1[0m
+[1;31m@cpy 1 ~2[0m
+[36m   427 add 1 0 ~2[0m
+[1;31m@call &shr_impl[0m
+[1;31m@cpy &retaddr19 ~0[0m
+[36m   431 add &retaddr19 0 ~0[0m
+[1;31m@jmp &shr_impl[0m
+[36m   435 jt 1 &shr_impl[0m
+[36m   438 retaddr19:[0m
+[1;31m@cpy ~2 return0[0m
+[36m   438 add ~2 0 return0[0m
+[36m   442 exitfun:[0m
+[1;31m@endfn[0m
+[36m   442 rbo -2[0m
+[1;31m@jmp ~0[0m
+[36m   444 jt 1 ~0[0m
+[1;31m@fn 3 shr_impl(n, mask) local(ret1, ret2, ret3) global(overflow_detected)[0m
+[36m   447 rbo 6[0m
+[36m   449 add mask mask ~2[0m
+[36m   453 jf mask &overflow_detected[0m
+[1;31m@jge n ~2 &keep_recursing[0m
+[36m   456 lt n ~2 condresult20[0m
+[36m   460 jf condresult20:0 &keep_recursing[0m
+[1;31m@cpy n ~1[0m
+[36m   463 add n 0 ~1[0m
+[1;31m@cpy 0 ~2[0m
+[36m   467 add 0 0 ~2[0m
+[1;31m@cpy 1 ~3[0m
+[36m   471 add 1 0 ~3[0m
+[1;31m@jmp &end_recursion[0m
+[36m   475 jt 1 &end_recursion[0m
+[36m   478 keep_recursing:[0m
+[1;31m@cpy n ~1[0m
+[36m   478 add n 0 ~1[0m
+[1;31m@call &shr_impl[0m
+[1;31m@cpy &retaddr21 ~0[0m
+[36m   482 add &retaddr21 0 ~0[0m
+[1;31m@jmp &shr_impl[0m
+[36m   486 jt 1 &shr_impl[0m
+[36m   489 retaddr21:[0m
+[36m   489 end_recursion:[0m
+[36m   489 jt ~3 &nextbit_not_set[0m
+[36m   492 add ~2 mask ~2[0m
+[36m   496 nextbit_not_set:[0m
+[1;31m@cpy ~2 ret2[0m
+[36m   496 add ~2 0 ret2[0m
+[36m   500 lt ~1 mask ret3[0m
+[36m   504 jt ret3 &bit_is_not_set[0m
+[36m   507 mul mask -1 mask_remover[0m
+[36m   511 add ~1 mask_remover:0 ~1[0m
+[36m   515 bit_is_not_set:[0m
+[1;31m@cpy ~1 ret1[0m
+[36m   515 add ~1 0 ret1[0m
+[1;31m@cpy ret1 return0[0m
+[36m   519 add ret1 0 return0[0m
+[1;31m@cpy ret2 return1[0m
+[36m   523 add ret2 0 return1[0m
+[1;31m@cpy ret3 return2[0m
+[36m   527 add ret3 0 return2[0m
+[1;31m@endfn[0m
+[36m   531 rbo -6[0m
+[1;31m@jmp ~0[0m
+[36m   533 jt 1 ~0[0m
+[1;31m@fn 0 print_decimal(n) global(print_next_decimal_digit)[0m
+[36m   536 rbo 2[0m
+[36m   538 jf n &print_zero[0m
+[1;31m@cpy n ~1[0m
+[36m   541 add n 0 ~1[0m
+[1;31m@cpy 1 ~2[0m
+[36m   545 add 1 0 ~2[0m
+[1;31m@call &print_next_decimal_digit[0m
+[1;31m@cpy &retaddr22 ~0[0m
+[36m   549 add &retaddr22 0 ~0[0m
+[1;31m@jmp &print_next_decimal_digit[0m
+[36m   553 jt 1 &print_next_decimal_digit[0m
+[36m   556 retaddr22:[0m
+[1;31m@jmp &exitfun[0m
+[36m   556 jt 1 &exitfun[0m
+[36m   559 print_zero: out '0'[0m
+[36m   561 exitfun:[0m
+[1;31m@endfn[0m
+[36m   561 rbo -2[0m
+[1;31m@jmp ~0[0m
+[36m   563 jt 1 ~0[0m
+[1;31m@fn 1 print_next_decimal_digit(n, mask) local(dig, negmask)[0m
+[36m   566 rbo 5[0m
+[1;31m@cpy n ~1[0m
+[36m   568 add n 0 ~1[0m
+[1;31m@jlt n mask &exitfn[0m
+[36m   572 lt n mask condresult23[0m
+[36m   576 jt condresult23:0 &exitfn[0m
+[36m   579 mul mask 10 ~2[0m
+[1;31m@call &print_next_decimal_digit[0m
+[1;31m@cpy &retaddr24 ~0[0m
+[36m   583 add &retaddr24 0 ~0[0m
+[1;31m@jmp &print_next_decimal_digit[0m
+[36m   587 jt 1 &print_next_decimal_digit[0m
+[36m   590 retaddr24:[0m
+[1;31m@cpy ~1 n[0m
+[36m   590 add ~1 0 n[0m
+[36m   594 mul mask -1 negmask[0m
+[1;31m@cpy '0' dig[0m
+[36m   598 add '0' 0 dig[0m
+[36m   602 compute_digit:[0m
+[1;31m@jlt n mask &done_compute_digit[0m
+[36m   602 lt n mask condresult25[0m
+[36m   606 jt condresult25:0 &done_compute_digit[0m
+[36m   609 add dig 1 dig[0m
+[36m   613 add n negmask n[0m
+[1;31m@jmp &compute_digit[0m
+[36m   617 jt 1 &compute_digit[0m
+[36m   620 done_compute_digit:[0m
+[36m   620 out dig[0m
+[36m   622 exitfn:[0m
+[1;31m@cpy n return0[0m
+[36m   622 add n 0 return0[0m
+[1;31m@endfn[0m
+[36m   626 rbo -5[0m
+[1;31m@jmp ~0[0m
+[36m   628 jt 1 ~0[0m
+[36m   631 @raw errmsg_ptr:0 strlen:0 tmpchar:0[0m
+[36m   634 die_with_message:[0m
+[1;31m@cpy errmsg_ptr read_strlen[0m
+[36m   634 add errmsg_ptr 0 read_strlen[0m
+[36m   638 add read_strlen:*0 0 strlen[0m
+[36m   642 add 1 errmsg_ptr errmsg_reader[0m
+[36m   646 message_print_loop:[0m
+[36m   646 add errmsg_reader:*0 0 tmpchar[0m
+[36m   650 add errmsg_reader 1 errmsg_reader[0m
+[36m   654 out tmpchar[0m
+[36m   656 add strlen -1 strlen[0m
+[36m   660 jt strlen &message_print_loop[0m
+[36m   663 hlt[0m
+[36m   664 overflow_detected:[0m
+[1;31m@cpy &str_overflow_detected errmsg_ptr[0m
+[36m   664 add &str_overflow_detected 0 errmsg_ptr[0m
+[1;31m@jmp &die_with_message[0m
+[36m   668 jt 1 &die_with_message[0m
+[36m   671 too_many_races_detected:[0m
+[1;31m@cpy &str_too_many_races errmsg_ptr[0m
+[36m   671 add &str_too_many_races 0 errmsg_ptr[0m
+[1;31m@jmp &die_with_message[0m
+[36m   675 jt 1 &die_with_message[0m
+[36m   678 time_dist_mismatch_detected:[0m
+[1;31m@cpy &str_time_dist_mismatch errmsg_ptr[0m
+[36m   678 add &str_time_dist_mismatch 0 errmsg_ptr[0m
+[1;31m@jmp &die_with_message[0m
+[36m   682 jt 1 &die_with_message[0m
+[36m   685 unsolvable_input:[0m
+[1;31m@cpy &str_unsolvable_input errmsg_ptr[0m
+[36m   685 add &str_unsolvable_input 0 errmsg_ptr[0m
+[1;31m@jmp &die_with_message[0m
+[36m   689 jt 1 &die_with_message[0m
+[1;31m@str str_overflow_detected:"Integer overflow detected\n"[0m
+[36m   692 @raw str_overflow_detected:26 73 110 116 101 103 101 114 32 111 118 101 114 102 108 111 119 32 100 101 116 101 99 116 101 100 10[0m
+[1;31m@str str_too_many_races:"Too many races input\n"[0m
+[36m   719 @raw str_too_many_races:21 84 111 111 32 109 97 110 121 32 114 97 99 101 115 32 105 110 112 117 116 10[0m
+[1;31m@str str_time_dist_mismatch:"Number of times does not match number of distances\n"[0m
+[36m   741 @raw str_time_dist_mismatch:51 78 117 109 98 101 114 32 111 102 32 116 105 109 101 115 32 100 111 101 115 32 110 111 116 32 109 97 116 99 104 32 110 117 109 98 101 114 32 111 102 32 100 105 115 116 97 110 99 101 115 10[0m
+[1;31m@str str_unsolvable_input:"Unsolvable input detected\n"[0m
+[36m   793 @raw str_unsolvable_input:26 85 110 115 111 108 118 97 98 108 101 32 105 110 112 117 116 32 100 101 116 101 99 116 101 100 10[0m
+[36m   820 @raw 	race_count:0 answer_accum:1[0m
+[36m   822 @raw times: 0 0 0 0 0 0 0 0 0 0[0m
+[36m   832 times_end:[0m
+[36m   832 @raw dists: 0 0 0 0 0 0 0 0 0 0[0m
+[36m   842 dists_end:[0m
+
+-10	fn_win_race__return0
+-10	fn_win_race__timelimit
+-9	fn_win_race__bestdist
+-8	fn_win_race__windist
+-7	fn_win_race__bsquared
+-6	fn_read_numbers__buffer
+-6	fn_read_numbers__return0
+-6	fn_win_race__fourac
+-5	fn_read_numbers__endbuffer
+-5	fn_shr_impl__n
+-5	fn_shr_impl__return0
+-5	fn_win_race__sqrtval
+-4	fn_print_next_decimal_digit__n
+-4	fn_print_next_decimal_digit__return0
+-4	fn_read_numbers__accum
+-4	fn_shr_impl__mask
+-4	fn_shr_impl__return1
+-4	fn_win_race__mintime
+-3	fn_isqrt__n
+-3	fn_isqrt__return0
+-3	fn_print_next_decimal_digit__mask
+-3	fn_read_numbers__numcount
+-3	fn_shr_impl__ret1
+-3	fn_shr_impl__return2
+-3	fn_win_race__sailtime
+-2	fn_isqrt__tmp
+-2	fn_print_next_decimal_digit__dig
+-2	fn_read_numbers__digcount
+-2	fn_shr_impl__ret2
+-2	fn_win_race__dist
+-1	fn_isqrt__ans
+-1	fn_lshr__n
+-1	fn_lshr__return0
+-1	fn_print_decimal__n
+-1	fn_print_next_decimal_digit__negmask
+-1	fn_read_numbers__intmp
+-1	fn_shr_impl__ret3
+-1	fn_win_race__maxtime
+1	part2
+3	dummy
+21	retaddr1
+40	retaddr2
+45	condresult3
+47	solve_loop
+48	timeptr
+52	distptr
+62	retaddr4
+92	retaddr5
+95	win_race
+118	fn_win_race__condresult6
+127	fn_win_race__retaddr7
+142	fn_win_race__retaddr8
+146	fn_win_race__guess_and_check_min
+152	fn_win_race__negmintime
+163	fn_win_race__not_first_winner
+172	fn_win_race__found_mintime
+176	fn_win_race__guess_and_check_max
+182	fn_win_race__negmaxtime
+193	fn_win_race__not_max_winner
+202	fn_win_race__found_maxtime
+215	read_numbers
+229	fn_read_numbers__next_number
+237	fn_read_numbers__seek_digit
+244	fn_read_numbers__condresult9
+251	fn_read_numbers__condresult10
+258	fn_read_numbers__condresult11
+260	fn_read_numbers__nondigit
+269	fn_read_numbers__eol
+274	fn_read_numbers__line_not_blank
+283	fn_read_numbers__number_finished
+288	fn_read_numbers__condresult12
+293	fn_read_numbers__outdest
+304	fn_read_numbers__continue_target
+305	fn_read_numbers__process_digit
+326	fn_read_numbers__accum_overflowcheck
+330	fn_read_numbers__condresult13
+335	fn_read_numbers__finis
+344	isqrt
+351	fn_isqrt__condresult14
+364	fn_isqrt__retaddr15
+371	fn_isqrt__retaddr16
+378	fn_isqrt__retaddr17
+400	fn_isqrt__undo
+402	fn_isqrt__exitfun
+407	lshr
+414	fn_lshr__condresult18
+423	fn_lshr__no_shortcuts
+438	fn_lshr__retaddr19
+442	fn_lshr__exitfun
+447	shr_impl
+461	fn_shr_impl__condresult20
+478	fn_shr_impl__keep_recursing
+489	fn_shr_impl__end_recursion
+489	fn_shr_impl__retaddr21
+496	fn_shr_impl__nextbit_not_set
+513	fn_shr_impl__mask_remover
+515	fn_shr_impl__bit_is_not_set
+536	print_decimal
+556	fn_print_decimal__retaddr22
+559	fn_print_decimal__print_zero
+561	fn_print_decimal__exitfun
+566	print_next_decimal_digit
+577	fn_print_next_decimal_digit__condresult23
+590	fn_print_next_decimal_digit__retaddr24
+602	fn_print_next_decimal_digit__compute_digit
+607	fn_print_next_decimal_digit__condresult25
+620	fn_print_next_decimal_digit__done_compute_digit
+622	fn_print_next_decimal_digit__exitfn
+631	errmsg_ptr
+632	strlen
+633	tmpchar
+634	die_with_message
+639	read_strlen
+646	message_print_loop
+647	errmsg_reader
+664	overflow_detected
+671	too_many_races_detected
+678	time_dist_mismatch_detected
+685	unsolvable_input
+692	str_overflow_detected
+719	str_too_many_races
+741	str_time_dist_mismatch
+793	str_unsolvable_input
+820	race_count
+821	answer_accum
+822	times
+832	dists
+832	times_end
+842	auto__end
+842	dists_end
+
