@@ -480,7 +480,16 @@ exitfn:
 # writes the bits that make up @num out to @buf_ptr, LSB-first (TODO: or should I do MSB-first?)
 # upon return, ~1 is the number of bits written (this will be 0 if num <= 0)
 
-@fn 1 int_to_bits(buf_ptr, num) global(max_reg_size, int_to_bits_core)
+# fake function
+int_to_bits:
+
+@cpy 1 ~3
+@cpy max_reg_size ~4
+@jmp &int_to_bits_core
+
+@raw &xint_to_bits
+
+@fn 1 xint_to_bits(buf_ptr, num) global(max_reg_size, int_to_bits_core)
 
 @cpy buf_ptr ~1
 @cpy num ~2
