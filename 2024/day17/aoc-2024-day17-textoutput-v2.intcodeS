@@ -1,0 +1,653 @@
+add part2:1 loose_parser:0 dummy:dummy
+rbo &program_code
+
+######################
+#
+#   Read puzzle input
+#
+
+######################
+#
+# Read initial register values, plus the word "Program: "
+
+# read registers
+# note that we can't use @call because of reasons
+@cpy &after_reading_registers read_registers_retaddr
+@jmp &read_registers
+after_reading_registers:
+
+######################
+#
+# Read program memory 
+
+# read program definition
+# terminate on: \n or \0
+read_program_input_loop:
+
+# read a single octal digit
+in ~0
+@jlt ~0 '0' &input_parse_error
+@jgt ~0 '7' &input_parse_error
+rbo 1
+add program_length 1 program_length
+
+# read a comma or newline
+reread_comma:
+in ~0
+@jeq ~0 ',' &read_program_input_loop
+# ignore '\r'
+@jeq ~0 '\r' &reread_comma
+# stop on '\n'
+@jeq ~0 '\n' &end_program_input_loop
+# stop on NUL or -1 (EOF from getch())
+@jle ~0 0 &end_program_input_loop
+@jmp &input_parse_error
+
+end_program_input_loop:
+# add a dummy '0' byte just in case
+@cpy 0 ~0
+rbo 1
+
+########################
+#
+# decode the integer values read from the input
+
+@cpy reg_A_ptr ~1
+@cpy regA_integer ~2
+@call &int_to_bits
+@cpy ~1 reg_A_len
+
+@cpy reg_B_ptr ~1
+@cpy regB_integer ~2
+@call &int_to_bits
+@cpy ~1 reg_B_len
+
+@cpy reg_C_ptr ~1
+@cpy regC_integer ~2
+@call &int_to_bits
+@cpy ~1 reg_C_len
+
+
+###### Debug output for this stuff
+@cpy reg_A_ptr ~1
+@cpy reg_A_len ~2
+@call &bits_to_int
+out ~1
+
+@cpy reg_B_ptr ~1
+@cpy reg_B_len ~2
+@call &bits_to_int
+out ~1
+
+@cpy reg_C_ptr ~1
+@cpy reg_C_len ~2
+@call &bits_to_int
+out ~1
+
+############################################################################################
+
+# okay! execute part 1
+
+@call &execute_cpu
+out '\n'
+
+hlt
+
+
+############################################################################################
+
+# output routine for part 1
+
+@fn 1 part1_output(value)
+jf part1_comma:0 &no_comma
+out ','
+no_comma:
+add value '0' value
+out value
+@cpy 1 part1_comma
+@cpy 1 return0
+@endfn
+
+
+############################################################################################
+# CPU execution routine
+
+@fn 1 execute_cpu() local(opcode, operand) global(program_code, program_length, pc, reg_A_ptr, reg_A_len, reg_B_ptr, reg_B_len, reg_C_ptr, reg_C_len, reg_D_ptr, reg_D_len, reg_B_start, reg_D_start, invalid_opcode_or_operand, bits_to_int)
+ 
+execute_next_instruction:
+
+@cpy 1 return0
+
+# fetch instruction and operand
+@jge pc program_length &halt
+add &program_code pc instr_ptr1
+@cpy instr_ptr1:*0 opcode
+add pc 1 pc
+add &program_code pc instr_ptr2
+@cpy instr_ptr2:*0 opcode
+add pc 1 pc
+
+# combo operand values 0-3 are literals
+@jle operand 3 &operand_is_literal
+@jeq opcode 1 &operand_is_literal
+@jeq opcode 3 &operand_is_literal
+@jeq opcode 4 &operand_is_literal
+
+# okay, it's a combo operand. do a register lookup
+@jgt operand 6 &invalid_opcode_or_operand
+add operand -4 operand
+mul operand 2 operand
+add &reg_A_ptr operand reg_bits_ptr
+add reg_bits_ptr 2 reg_len_ptr
+@cpy reg_bits_ptr:*0  ~1
+@cpy reg_len_ptr:*0 ~2
+@call &bits_to_int
+@cpy ~1 operand
+@jmp &operand_is_literal
+
+@raw disptable: &adv &bxl &bst &jnz &bxc &out &bdv &cdv
+
+operand_is_literal:
+
+add &disptable opcode jump_address
+@jmp jump_address:&invalid_opcode_or_operand
+
+adv:
+#@cpy reg_A div_src
+@jmp &xdv
+
+bdv:
+#@cpy reg_B div_src
+@jmp &xdv
+
+cdv: 
+#@cpy reg_C div_src
+@jmp &xdv
+
+xdv: hlt
+bst: hlt
+bxc: hlt
+bxl: hlt
+jnz: hlt
+out: hlt
+
+@jmp &execute_next_instruction
+
+halt:
+@endfn
+
+@cpy &dists ~1
+@cpy &dists_end ~2
+@call &read_numbers
+@jne race_count ~1 &time_dist_mismatch_detected
+
+solve_loop:
+add timeptr:times 0 ~1
+add distptr:dists 0 ~2
+@call &win_race
+mul ~1 answer_accum answer_accum
+add -1 race_count race_count
+add 1 timeptr timeptr
+add 1 distptr distptr
+jt race_count &solve_loop
+
+#out answer_accum
+@cpy answer_accum ~1
+@call &print_decimal
+out '\n'
+
+hlt
+
+@fn 1 win_race(timelimit, bestdist) local(windist, bsquared, fourac, sqrtval, mintime, sailtime, dist, maxtime) global(isqrt, lshr, unsolvable_input)
+
+# (timelimit +/- sqrt(timelimit * timelimit - 4 * bestdist)) / 2
+
+# to win we need at least 1 more than bestdist
+add bestdist 1 windist
+
+mul timelimit timelimit bsquared
+mul -4 bestdist fourac
+add bsquared fourac ~1
+# if discriminant is less than 1, the puzzle is unsolvable (it might even be unsolvable *at* 1, I'm not sure)
+@jlt ~1 1 &unsolvable_input
+@call &isqrt
+mul ~1 -1 sqrtval
+add timelimit sqrtval ~1
+# divide by two
+@call &lshr
+@cpy ~1 mintime
+
+
+# find the first button-press time that wins
+guess_and_check_min:
+mul mintime -1 negmintime
+add timelimit negmintime:0 sailtime
+mul mintime sailtime dist
+lt dist windist not_first_winner
+jf not_first_winner:0 &found_mintime
+add mintime 1 mintime
+@jmp &guess_and_check_min
+found_mintime:
+
+# find the first time after mintime that the button-press time does *not* win
+# protip: sailing 'sailtime' DOES win, for the same reason sailing 'mintime'
+@cpy sailtime maxtime
+
+guess_and_check_max:
+mul maxtime -1 negmaxtime
+add timelimit negmaxtime:0 sailtime
+mul maxtime sailtime dist
+lt dist windist not_max_winner
+jt not_max_winner:0 &found_maxtime
+add maxtime 1 maxtime
+@jmp &guess_and_check_max
+found_maxtime:
+
+mul mintime -1 return0
+add maxtime return0 return0
+
+@endfn
+
+############################
+## REGISTER READ ROUTINE
+##
+## non-reentrant. specifically designed to NOT use the stack.
+
+# "Register A: "
+# gah. compiler is buggy about spaces
+@raw reg_str_match: 'R' 'e' 'g' 'i' 's' 't' 'e' 'r' 32 input_reglet: 'A' ':' 32 0
+@raw program_str_match: 'P' 'r' 'o' 'g' 'r' 'a' 'm' ':' 32 program_str_end: 0
+@raw rr_nextchar:0
+@raw rr_intmp:0
+@raw rr_regval:0
+
+read_registers:
+
+rr_read_next_register:
+@cpy &reg_str_match rr_readfrom
+@cpy 0 rr_regval
+@cpy 0 rr_regval_nonempty
+
+rr_str_match_next_char:
+@cpy rr_readfrom:*0 rr_nextchar
+jf rr_nextchar &rr_str_match_complete
+in rr_intmp
+@jne rr_nextchar rr_intmp &input_parse_error
+add rr_readfrom 1 rr_readfrom
+@jmp &rr_str_match_next_char
+
+rr_str_match_complete:
+@jeq rr_readfrom &program_str_end read_registers_retaddr:&internal_error
+
+# okay, we got the "Register A: " bit.
+# Read the value of this register.
+rr_read_regval:
+in rr_intmp
+@jeq rr_intmp '\r' &rr_read_regval
+@jeq rr_intmp '\n' &rr_regval_eol
+@jlt rr_intmp '0' &input_parse_error
+@jgt rr_intmp '9' &input_parse_error
+@cpy 1 rr_regval_nonempty
+add -'0' rr_intmp rr_intmp
+mul rr_regval 10 rr_regval
+add rr_regval rr_intmp rr_regval
+@jmp &rr_read_regval
+
+rr_regval_eol:
+jf rr_regval_nonempty:0 &input_parse_error
+
+@cpy rr_regval rr_regdst:regA_integer
+add rr_regdst 1 rr_regdst
+add input_reglet 1 input_reglet
+@jle input_reglet 'C' &rr_read_next_register
+
+rr_read_blank_line:
+in rr_intmp
+@jeq rr_intmp '\r' &rr_read_blank_line
+@jne rr_intmp '\n' &input_parse_error
+
+@cpy &program_str_match rr_readfrom
+@jmp &rr_str_match_next_char
+
+@fn 1 read_numbers(buffer, endbuffer) local(accum, numcount, digcount, intmp) global(part2, overflow_detected, too_many_races_detected)
+
+@cpy 0 numcount
+@cpy buffer outdest
+@cpy &next_number continue_target
+
+next_number:
+@cpy 0 accum
+@cpy 0 digcount
+seek_digit: in intmp
+@jeq intmp '\n' &eol
+@jlt intmp '0' &nondigit
+@jle intmp '9' &process_digit
+#@jlt intmp ':' &process_digit
+nondigit:
+# if we're in part 2, all the digits are grouped together
+jt part2 &seek_digit
+# if there have not been any digits read, keep reading
+jf digcount &seek_digit
+@jmp &number_finished
+
+eol:
+# ignore input lines with no numbers in them
+add numcount digcount line_not_blank
+jf line_not_blank:0 &seek_digit
+# if digcount is 0 there was extra noise (like \r) after the last digit
+jf digcount &finis
+@cpy &finis continue_target
+# okay, we just read a value. store it in the buffer
+
+number_finished:
+@jge outdest endbuffer &too_many_races_detected
+
+@cpy accum outdest:*0
+add 1 outdest outdest
+add 1 numcount numcount
+@jmp continue_target:&next_number
+
+process_digit:
+@cpy accum accum_overflowcheck
+add 1 digcount digcount
+add -'0' intmp intmp
+mul 10 accum accum
+add accum intmp accum
+
+@jle accum accum_overflowcheck:0 &overflow_detected
+@jmp &seek_digit
+#@jlt accum_overflowcheck:0 accum &seek_digit
+#@jmp &overflow_detected
+
+finis:
+
+@cpy numcount return0
+
+@endfn
+
+@fn 1 isqrt(n) local(tmp, ans) global(lshr)
+
+# this relies on the fact that 'n' and 'return0' are the same storage location
+# if n < 2 return n
+@jlt n 2 &exitfun
+
+@cpy n ~1
+@call &lshr
+@call &lshr
+@call &isqrt
+mul ~1 2 ans
+add ans 1 ans
+mul ans ans tmp
+lt n tmp undo
+mul undo -1 undo
+add ans undo:0 return0
+exitfun:
+@endfn 
+
+# logical (unsigned) shift-right one bit
+@fn 1 lshr(n) global(shr_impl)
+@jge n 2 &no_shortcuts
+@cpy 0 return0
+@jmp &exitfun
+no_shortcuts:
+# n >= 2
+@cpy n ~1
+@cpy 1 ~2
+@call &shr_impl
+@cpy ~2 return0
+exitfun:
+@endfn
+
+@fn 3 shr_impl(n, mask) local(ret1, ret2, ret3) global(overflow_detected)
+
+
+# PRECONDITIONS: n >= mask, mask is a power of 2
+# POSTCONDITIONS: upon return, ~1 has all bits greater than mask removed; ~2 is those same bits shifted right by one bit; ~3 is *0* if and only if <mask1> was set
+
+add mask mask ~2
+jf mask &overflow_detected
+@jge n ~2 &keep_recursing
+@cpy n ~1
+@cpy 0 ~2
+@cpy 1 ~3
+@jmp &end_recursion
+keep_recursing:
+@cpy n ~1
+# ~2 is already set up
+@call &shr_impl
+end_recursion:
+jt ~3 &nextbit_not_set
+add ~2 mask ~2
+nextbit_not_set:
+@cpy ~2 ret2
+lt ~1 mask ret3
+jt ret3 &bit_is_not_set
+mul mask -1 mask_remover
+add ~1 mask_remover:0 ~1
+bit_is_not_set:
+@cpy ~1 ret1
+
+@cpy ret1 return0
+@cpy ret2 return1
+@cpy ret3 return2
+
+@endfn
+
+# print nonnegative decimal number (negative numbers will not be printed)
+# changing this to support negatives would be easy but I don't need it
+@fn 0 print_decimal(n) global(print_next_decimal_digit)
+jf n &print_zero
+@cpy n ~1
+@cpy 1 ~2
+@call &print_next_decimal_digit
+@jmp &exitfun
+print_zero: out '0'
+exitfun:
+@endfn
+
+@fn 1 print_next_decimal_digit(n, mask) local(dig, negmask)
+
+# PRECONDITIONS: n >= mask, mask is a power of 10
+# POSTCONDITIONS: upon return, ~1 has all powers of 10 greater than mask removed
+
+@cpy n ~1
+@jlt n mask &exitfn
+
+mul mask 10 ~2
+@call &print_next_decimal_digit
+@cpy ~1 n
+
+mul mask -1 negmask
+@cpy '0' dig
+compute_digit:
+@jlt n mask &done_compute_digit
+add dig 1 dig
+add n negmask n
+@jmp &compute_digit
+done_compute_digit:
+
+out dig
+
+exitfn:
+@cpy n return0
+@endfn
+
+#####################################
+# int_to_bits(buf_ptr, num) -> count_of_bits_written
+#
+# Convert an integer value into a bit string
+#
+# writes the bits that make up @num out to @buf_ptr, LSB-first (TODO: or should I do MSB-first?)
+# upon return, ~1 is the number of bits written (this will be 0 if num <= 0)
+
+@fn 1 int_to_bits(buf_ptr, num) global(max_reg_size, int_to_bits_core)
+
+@cpy buf_ptr ~1
+@cpy num ~2
+@cpy 1 ~3
+@cpy max_reg_size ~4
+
+@call &int_to_bits_core
+
+@cpy ~1 return0
+
+@endfn
+
+#####################################
+# int_to_bits_core(buf_ptr, num, pow2, buf_size) -> (count_of_bits_written, num_masked)
+#
+# Core to_bits implementation
+#
+# upon return, ~1 is the number of bits written (this will be 0 if num < pow2) and ~2 is num with all bits greater than or equal to pow2 masked out
+
+# GOTCHA: return parameters and incoming arguments share stack space, so return0 and return1 are aliased with buf_ptr and num, respectively
+# because of that, the parameter order was changed from "num, buf_ptr" to "buf_ptr, num" to avoid some juggling
+
+@fn 1 int_to_bits_core(buf_ptr, num, pow2, buf_size) local(bits_written) global(overflow_detected)
+
+@cpy 0 bits_written
+@jlt num pow2 &done
+
+# we need to write out at least one bit. if there's no room, report an error
+jf buf_size &overflow_detected
+
+# if there are any bits *higher* than pow2 set in num, we need to remove them 
+@jle num pow2 &no_higher_bits
+
+# remove higher bits
+add 1 buf_ptr ~1
+@cpy num ~2
+mul pow2 2 ~3
+add buf_size -1 ~4
+@call &int_to_bits_core
+add bits_written ~1 bits_written
+@cpy ~2 num
+
+no_higher_bits:
+
+@cpy buf_ptr write_ptr
+lt num pow2 inverted_bit
+eq inverted_bit:0 0 write_ptr:*0
+
+add bits_written 1 bits_written
+
+done:
+
+@cpy bits_written return0
+# num and return1 are aliases
+#@cpy num return1 
+@endfn
+
+#####################################
+# bits_to_int(buf_ptr, length) -> num
+#
+# Converts a bit string to an integer
+#
+# writes the bits that make up @num out to @buf_ptr, LSB-first (TODO: or should I do MSB-first?)
+# upon return, ~1 is the number of bits written (this will be 0 if num <= 0)
+
+@fn 1 bits_to_int(buf_ptr, buf_len) local(bitval)
+
+@cpy buf_ptr read_ptr
+@cpy 0 return0
+@cpy 1 bitval
+jf buf_len &done
+next_bit:
+
+mul read_ptr:*0 bitval read_bitval
+add return0 read_bitval:0 return0
+mul bitval 2 bitval
+
+add read_ptr 1 read_ptr
+add buf_len -1 buf_len
+jt buf_len &next_bit
+done:
+
+@endfn
+
+
+#####################################
+#
+# error messages, etc.
+
+@raw errmsg_ptr:0 strlen:0 tmpchar:0
+die_with_message:
+# @str puts a length prefix
+@cpy errmsg_ptr read_strlen
+add read_strlen:*0 0 strlen
+add 1 errmsg_ptr errmsg_reader
+message_print_loop:
+add errmsg_reader:*0 0 tmpchar
+add errmsg_reader 1 errmsg_reader
+out tmpchar
+add strlen -1 strlen
+jt strlen &message_print_loop
+hlt
+
+overflow_detected:
+@cpy &str_overflow_detected errmsg_ptr
+@jmp &die_with_message
+
+too_many_races_detected:
+@cpy &str_too_many_races errmsg_ptr
+@jmp &die_with_message
+
+time_dist_mismatch_detected:
+@cpy &str_time_dist_mismatch errmsg_ptr
+@jmp &die_with_message
+
+unsolvable_input:
+@cpy &str_unsolvable_input errmsg_ptr
+@jmp &die_with_message
+
+internal_error:
+@cpy &str_internal_error errmsg_ptr
+@jmp &die_with_message
+
+input_parse_error:
+@cpy &str_input_parse_error errmsg_ptr
+@jmp &die_with_message
+
+invalid_opcode_or_operand:
+@cpy &str_invalid_opcode_or_operand errmsg_ptr
+@jmp &die_with_message
+
+@str str_overflow_detected:"Integer overflow detected\n"
+@str str_too_many_races:"Too many races input\n"
+@str str_time_dist_mismatch:"Number of times does not match number of distances\n"
+@str str_unsolvable_input:"Unsolvable input detected\n"
+@str str_internal_error:"Internal error\n"
+@str str_input_parse_error:"Input parse error\n"
+@str str_invalid_opcode_or_operand:"Invalid opcode or combo operand\n"
+
+@raw 	race_count:0 answer_accum:1
+# arbitrary limit of 10 races
+@raw times: 0 0 0 0 0 0 0 0 0 0
+#times_end:
+@raw dists: 0 0 0 0 0 0 0 0 0 0
+dists_end:
+
+@raw &loose_parser &part1_output &reg_B_ptr &reg_B_start &reg_C_ptr &reg_D_len &reg_B_len &reg_D_start &reg_D_ptr
+
+@raw max_reg_size: 64
+
+# NB: these three registers must be consecutive
+@raw regA_integer: 0  regB_integer: 0 regC_integer: 0
+# NB: these must be consecutive of the form (ptr, length)
+@raw reg_A_ptr: &regbuf_A reg_A_len: 0
+@raw reg_B_ptr: &regbuf_B1 reg_B_len: 0
+@raw reg_C_ptr: &regbuf_C reg_C_len: 0
+@raw reg_D_ptr: &regbuf_B2 reg_D_len: 0
+# register "D" is a temporary register used by the execution core
+@raw reg_B_start: &regbuf_B1
+@raw reg_D_start: &regbuf_B2
+@raw regbuf_A:  0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0
+@raw regbuf_C:  0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0
+@raw regbuf_B1:  0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0
+@raw regbuf_B2:  0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0
+@raw pc: 0
+
+#@raw &pc &program_code &program_length
+
+@raw program_length: 0
+program_code:

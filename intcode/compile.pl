@@ -7,8 +7,7 @@ use Getopt::Long;
 my %opt;
 die unless GetOptions(\%opt, 'trace', 'labels', 'randomize');
 
-local $/;
-my $asm = <>;
+my $asm = do { local $/; <> };
 my ($bytecode, $label_addr) = compile($asm,\%opt);
 if ($opt{trace}) {
   warn "\n";
@@ -50,18 +49,21 @@ sub compile {
   );
 
   my @compiled;
-  my @lines = grep {/\S/} split(/\n/, $asm);
+  #my @lines = grep {/\S/} split(/\n/, $asm);
+  my $linenum = 1; 
+  my @lines = map { [ $linenum++, $_ ] } split /\n/, $asm;
 
   my %label_addr;
   my %label_mode;
   my %label_uses;
+  my %label_linerefs;
   my $label_prefix = "";
   my %label_prefix_except;
 
   my %functions;
 
   my $warn = sub {
-    warn "\e[33m[warn]\e[0m $_[0]\n";
+    warn "\e[33m[warn]\e[0m $_[0] at line $.\n";
   };
 
   my $_cur_uid = 0;
@@ -96,12 +98,12 @@ sub compile {
 
       $label_addr{$fnname} = @compiled;
 
-      my @args    =                       split(/\,\s*/, $arglist   );      die "invalid function $fnname arglist"    if grep {!/^(?!\d)\w+$/} @args;
-      my @locals  = defined $locallist  ? split(/\,\s*/, $locallist ) : (); die "invalid function $fnname locallist"  if grep {!/^(?!\d)\w+$/} @locals;
-      my @globals = defined $globallist ? split(/\,\s*/, $globallist) : (); die "invalid function $fnname globallist" if grep {!/^(?!\d)\w+$/} @globals;
+      my @args    =                       map { lc } split(/\,\s*/, $arglist   );      die "invalid function $fnname arglist"    if grep {!/^(?!\d)\w+$/} @args;
+      my @locals  = defined $locallist  ? map { lc } split(/\,\s*/, $locallist ) : (); die "invalid function $fnname locallist"  if grep {!/^(?!\d)\w+$/} @locals;
+      my @globals = defined $globallist ? map { lc } split(/\,\s*/, $globallist) : (); die "invalid function $fnname globallist" if grep {!/^(?!\d)\w+$/} @globals;
 
       my %use_num; $use_num{$_}++ for (@args, @locals, @globals);
-      die "duplicate label in \@fn $fnname declaration" if grep {$_>1} values %use_num;
+      die "duplicate label [", join(' ', grep {$use_num{$_}>1} keys %use_num), "] in \@fn $fnname declaration" if grep {$_>1} values %use_num;
 
       die if $fnname =~ /__/;
       $label_prefix = "fn_${fnname}__";
@@ -201,6 +203,11 @@ sub compile {
 
   for (my $line_i=0; $line_i<@lines; $line_i++) {
     my $line = $lines[$line_i];
+	if (ref $line eq 'ARRAY') {
+		$. = $line->[0];
+		$line = $line->[1];
+	}
+	next unless $line =~ /\S/;
     $line =~ s/^\s+|\s+$//g;
     next if $line =~ /^\s*(?:\#.*?)?$/;
 
@@ -278,6 +285,7 @@ sub compile {
           }
           $out_vals[$i] = "LABEL";
           push @{$label_uses{$label}}, @compiled + $i;
+		  push @{$label_linerefs{$label}}, $.;
         } else {
 				print STDERR "in_vals: ", join(', ', map "[$_]", @in_vals), "\n";
           die "unrecognized value <$in_vals[$i]> at index $i of line: $line";
@@ -303,7 +311,7 @@ sub compile {
   for my $label (keys %label_uses) {
     for my $use_addr (@{$label_uses{$label}}) {
       push @issues, "label $label addr $use_addr somehow outside of compiled bounds" if $use_addr > $#compiled;
-      push @issues, "label $label referenced but never defined" unless exists $label_addr{$label};
+      push @issues, "label $label referenced (line " . join(', ', @{$label_linerefs{$label}}) . ") but never defined" unless exists $label_addr{$label};
       $compiled[$use_addr] = $label_addr{$label};
     }
   }

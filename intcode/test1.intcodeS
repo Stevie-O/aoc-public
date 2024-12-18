@@ -1,0 +1,21 @@
+rbo &auto__end
+
+in ~1
+in ~2
+in ~3
+
+@call &testfn
+
+out ~1
+out ~2
+
+hlt
+
+@fn 2 testfn(a, b, c) local(d, e)
+
+add a b d
+add b c e
+
+@cpy d return0
+@cpy e return1
+@endfn 
