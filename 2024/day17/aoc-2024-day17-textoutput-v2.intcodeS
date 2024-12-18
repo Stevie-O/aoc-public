@@ -531,6 +531,10 @@ eq inverted_bit:0 0 write_ptr:*0
 
 add bits_written 1 bits_written
 
+mul pow2 write_ptr subtract_mask
+mul subtract_mask -1 subtract_mask
+add num subtract_mask:0 num
+
 done:
 
 @cpy bits_written return0
