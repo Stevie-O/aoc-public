@@ -1,4 +1,4 @@
-add part2:1 loose_parser:0 dummy:dummy
+add part2:0 loose_parser:0 dummy:dummy
 rbo &program_code
 
 ######################
@@ -88,11 +88,39 @@ out ~1
 
 # okay! execute part 1
 
+@cpy &part1_output ~1
 @call &execute_cpu
 out '\n'
 
+jf part2 &print_registers_and_terminate
+
 hlt
 
+
+############################################################################################
+#
+# print_registers_and_terminate()
+#
+# prints the contents of A, B, and C to output in ASCII.
+
+print_registers_and_terminate:
+
+out '\n'
+out prat_regname:'A'
+out ':'
+out 32
+@cpy prat_ptr_ref:reg_A_ptr ~1
+@cpy prat_len_ref:reg_A_len ~2
+@call &bits_to_int
+@call &print_decimal
+out '\n'
+add prat_regname 1 prat_regname
+add prat_ptr_ref 2 prat_ptr_ref
+add prat_len_ref 2 prat_len_ref
+add prat_regs_left -1 prat_regs_left
+jt prat_regs_left:3 &print_registers_and_terminate
+
+hlt
 
 ############################################################################################
 
@@ -112,8 +140,10 @@ out value
 ############################################################################################
 # CPU execution routine
 
-@fn 1 execute_cpu() local(opcode, operand) global(program_code, program_length, pc, reg_A_ptr, reg_A_len, reg_B_ptr, reg_B_len, reg_C_ptr, reg_C_len, reg_D_ptr, reg_D_len, reg_B_start, reg_D_start, invalid_opcode_or_operand, bits_to_int)
+@fn 1 execute_cpu(output_callback) local(opcode, operand, tmp1) global(program_code, program_length, pc, reg_A_ptr, reg_A_len, reg_B_ptr, reg_B_len, reg_C_ptr, reg_C_len, reg_D_ptr, reg_D_len, reg_B_start, reg_D_start, invalid_opcode_or_operand, bits_to_int, infinite_loop_detected)
  
+@cpy 1 adv_executed
+
 execute_next_instruction:
 
 @cpy 1 return0
@@ -141,8 +171,24 @@ add &reg_A_ptr operand reg_bits_ptr
 add reg_bits_ptr 2 reg_len_ptr
 @cpy reg_bits_ptr:*0  ~1
 @cpy reg_len_ptr:*0 ~2
+
+# okay, for opcodes 0, 6, and 7 (Xdv), the combo operand register is used in full
+# but for opcodes 2 and 5, the combo operand register is truncated to 3 bits
+
+# first, if the register length is already at most 3 bits, no truncation needed
+@jlt ~2 4 &no_combo_truncate
+eq opcode 2 nct_is_bst
+eq opcode 5 nct_is_out
+add nct_is_bst nct_is_out nct_is_bst_or_out
+jf nct_is_bst_or_out:0 &no_combo_truncate
+
+# okay, it's opcode 2 or 5 AND the source register is more than 3 bits wide. reduce it to 3
+@cpy 3 ~2
+nct_is_bst_or_out:
+
 @call &bits_to_int
 @cpy ~1 operand
+
 @jmp &operand_is_literal
 
 @raw disptable: &adv &bxl &bst &jnz &bxc &out &bdv &cdv
@@ -150,28 +196,147 @@ add reg_bits_ptr 2 reg_len_ptr
 operand_is_literal:
 
 add &disptable opcode jump_address
-@jmp jump_address:&invalid_opcode_or_operand
+@jmp jump_address:*0
+
+#########
+#
+#   0=ADV
 
 adv:
-#@cpy reg_A div_src
-@jmp &xdv
+# adv: A >>= operand
+
+# we're going to shift the lowest @operand_bits out of A
+
+@jle operand reg_A_len &adv_no_truncate
+# if @operand is greater than the remaining length of A, then shift whatever's left
+@cpy reg_A_len operand
+adv_no_truncate:
+
+# if operand is 0, then that's a no-op.
+jf operand &execute_next_instruction
+
+# @reg_A_ptr += @len
+add reg_A_ptr operand reg_A_ptr
+# @reg_A_len -= @len
+mul operand -1 operand
+add reg_A_len operand reg_A_len
+
+# we modified A. 
+@cpy 1 adv_executed
+
+jmp &execute_next_instruction
+
+
+#########
+#
+#   6=BDV
 
 bdv:
-#@cpy reg_B div_src
-@jmp &xdv
+# bdv: B = A >> operand
 
-cdv: 
-#@cpy reg_C div_src
-@jmp &xdv
+@jle operand reg_A_len &bdv_no_truncate
+# if @operand is greater than the remaining length of A, then shift whatever's left
+@cpy reg_A_len operand
+bdv_no_truncate:
 
-xdv: hlt
-bst: hlt
-bxc: hlt
-bxl: hlt
-jnz: hlt
-out: hlt
+# we're gonna cheat and have reg_B point into reg_A.  this will make certain things FAR more efficient.
+# however, since most other operations can modify B -- BXL, BST, 
+@cpy 1 reg_B_isalias
+add reg_A_ptr operand reg_B_ptr
+mul operand -1 operand
+add reg_A_len operand reg_B_len
+
+jmp &execute_next_instruction
+
+#########
+#
+#   7=CDV
+
+cdv:
+# cdv: C = A >> operand
+
+@jle operand reg_A_len &cdv_no_truncate
+# if @operand is greater than the remaining length of A, then shift whatever's left
+@cpy reg_A_len operand
+cdv_no_truncate:
+
+# we're gonna cheat and have reg_C point into reg_A's buffer.
+# we don't need to track this, because the only way to write to C is through CDV. (the only other way to get any data into C is to put it in the initial register state.)
+add reg_A_ptr operand reg_C_ptr
+mul operand -1 operand
+add reg_A_len operand reg_C_len
 
 @jmp &execute_next_instruction
+
+
+#########
+#
+#   5=OUT
+
+out:
+
+@cpy operand ~1
+@call output_callback
+jt ~1 &execute_next_instruction
+# if output_callback returns false, abort execution
+@cpy ~1 return0
+@jmp halt
+
+
+#########
+#
+#   3=JNZ
+
+jnz:
+
+# if reg_A is zero-length, we don't jump.
+jf reg_A_len &execute_next_instruction
+
+# if A hasn't been modified since the last backwards JNZ call, this program will probably never terminate
+jf adv_executed:1 &infinite_loop_detected
+
+# if this is a *forwards* jump, then it can't form an infinite loop
+lt pc operand adv_executed
+
+# jump to the specified address
+@cpy operand pc
+
+@jmp &execute_next_instruction
+
+
+@cpy operand ~1
+@call output_callback
+jt ~1 &execute_next_instruction
+# if output_callback returns false, abort execution
+@cpy ~1 return0
+@jmp halt
+
+#######
+#
+#    1=BXL
+
+bxl:
+
+# TODO
+hlt
+
+#######
+#
+#    2=BST
+
+bst:
+
+# TODO
+hlt
+
+#######
+#
+#    4=BXC
+
+bxc:
+
+# TODO
+hlt
 
 halt:
 @endfn
@@ -480,27 +645,13 @@ exitfn:
 # writes the bits that make up @num out to @buf_ptr, LSB-first (TODO: or should I do MSB-first?)
 # upon return, ~1 is the number of bits written (this will be 0 if num <= 0)
 
-# fake function
+# lightweight function with tail recursion
 int_to_bits:
 
 @cpy 1 ~3
 @cpy max_reg_size ~4
 @jmp &int_to_bits_core
 
-@raw &xint_to_bits
-
-@fn 1 xint_to_bits(buf_ptr, num) global(max_reg_size, int_to_bits_core)
-
-@cpy buf_ptr ~1
-@cpy num ~2
-@cpy 1 ~3
-@cpy max_reg_size ~4
-
-@call &int_to_bits_core
-
-@cpy ~1 return0
-
-@endfn
 
 #####################################
 # int_to_bits_core(buf_ptr, num, pow2, buf_size) -> (count_of_bits_written, num_masked)
@@ -624,6 +775,10 @@ invalid_opcode_or_operand:
 @cpy &str_invalid_opcode_or_operand errmsg_ptr
 @jmp &die_with_message
 
+infinite_loop_detected:
+@cpy &str_infinite_loop_detected errmsg_ptr
+@jmp &die_with_message
+
 @str str_overflow_detected:"Integer overflow detected\n"
 @str str_too_many_races:"Too many races input\n"
 @str str_time_dist_mismatch:"Number of times does not match number of distances\n"
@@ -631,6 +786,7 @@ invalid_opcode_or_operand:
 @str str_internal_error:"Internal error\n"
 @str str_input_parse_error:"Input parse error\n"
 @str str_invalid_opcode_or_operand:"Invalid opcode or combo operand\n"
+@str str_infinite_loop_detected:"Infinite loop detected\n"
 
 @raw 	race_count:0 answer_accum:1
 # arbitrary limit of 10 races
@@ -639,7 +795,7 @@ invalid_opcode_or_operand:
 @raw dists: 0 0 0 0 0 0 0 0 0 0
 dists_end:
 
-@raw &loose_parser &part1_output &reg_B_ptr &reg_B_start &reg_C_ptr &reg_D_len &reg_B_len &reg_D_start &reg_D_ptr
+@raw &loose_parser &part1_output &reg_B_ptr &reg_B_start &reg_C_ptr &reg_D_len &reg_B_len &reg_D_start &reg_D_ptr &reg_B_isalias &infinite_loop_detected
 
 @raw max_reg_size: 64
 
@@ -651,6 +807,8 @@ dists_end:
 @raw reg_C_ptr: &regbuf_C reg_C_len: 0
 @raw reg_D_ptr: &regbuf_B2 reg_D_len: 0
 # register "D" is a temporary register used by the execution core
+# if reg_B_isalias=1, reg_B_ptr actually points at A
+@raw reg_B_isalias: 0
 @raw reg_B_start: &regbuf_B1
 @raw reg_D_start: &regbuf_B2
 @raw regbuf_A:  0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0

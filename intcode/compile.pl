@@ -265,7 +265,7 @@ sub compile {
           die "wrong length lval definition for instruction $in_vals[0]" unless $instr{$in_vals[0]}{args} == @{$instr{$in_vals[0]}{lvals}};
           $out_vals[$i] = $instr{$in_vals[0]}{opcode};
 
-					$warn->("jump to variable address in line: $line") if $in_vals[0] =~ /^j[tf]$/ && $in_vals[2] !~ /^(?:\w+\:)?(?:\&\w+|\~0)$/;
+					$warn->("jump to variable address in line: $line") if $in_vals[0] =~ /^j[tf]$/ && 	$in_vals[2] !~ /^(?:\w+\:)?(?:\&\w+|\~0)$|^\w+:\*-?\w+$/;
 				}
       } else {
         my $addr_mode;
@@ -274,8 +274,9 @@ sub compile {
           my ($mode_str, $val) = ($1, $2);
           $addr_mode = $mode_str eq '*' ? 0 : $mode_str eq '' ? 1 : $mode_str eq '~' ? 2 : die;
           $out_vals[$i] = $val;
-        } elsif ($in_vals[$i] =~ /^([\&]?)([a-z_]\w*)$/i) {
+        } elsif ($in_vals[$i] =~ /^([\&\*]?)([a-z_]\w*)$/i) {
           my ($mode_str, $label) = ($1, lc $2);
+		  $mode_str = '' if $mode_str eq '*'; # hack for suppressing the 'jump to variable address' warning
           $label = "$label_prefix$label" unless $label_prefix_except{$label};
           if (exists $label_mode{$label}) {
             die "mode flag illegal on label $label with defined mode $label_mode{$label}" if $mode_str ne '';
