@@ -1,4 +1,4 @@
-add debug_mode:2 loose_parser:0 dummy:dummy
+add debug_mode:0 loose_parser:0 dummy:dummy
 rbo &program_code
 
 ######################
@@ -100,11 +100,117 @@ out '\n'
 
 jt debug_mode &print_registers_and_terminate
 
+@call &solve_part2
+jf ~1 &unsolvable_input
 
-@jmp &unsolvable_input
+# print the solution
+@call &print_decimal
 
 hlt
 
+############################################################################################
+#
+
+@fn 1 solve_part2() global(solve_part2_core, reg_A_ptr, reg_A_len, regbuf_A, max_reg_size, program_length, program_code)
+
+add program_length -1 ~1
+add &program_code program_length ~2
+add ~2 -1 ~2
+add &regbuf_A max_reg_size ~3
+@cpy 0 ~4
+@call &solve_part2_core
+@cpy ~1 return0
+
+@endfn
+
+@fn 1 solve_part2_core(left_to_match, match_ptr, a_ptr, a_len) local(nyb, bitcount, old_len) global(reg_A_ptr, reg_A_len, reg_B_len, reg_C_len, program_code, program_length, part2_solve_pointer, int_to_bits, execute_cpu, part2_solution_found, bits_to_int, part2_output)
+
+add a_ptr -3 a_ptr
+@cpy 0 nyb
+next_nyb:
+
+@cpy a_ptr ~1
+@cpy nyb ~2
+@call &int_to_bits
+@cpy ~1 bitcount
+
+jf a_len &no_padding
+@jeq bitcount 3 &no_padding
+add a_ptr bitcount pad_write_ptr
+pad_bits:
+@cpy 0 pad_write_ptr:*0
+add pad_write_ptr 1 pad_write_ptr
+add bitcount 1 bitcount
+@jlt bitcount 3 &pad_bits
+no_padding:
+
+@cpy a_len old_len
+add a_len bitcount a_len
+
+# set up CPU registers
+@cpy a_ptr reg_A_ptr
+@cpy a_len reg_A_len
+@cpy 0 reg_B_len
+@cpy 0 reg_C_len
+
+out 1000156
+
+@cpy match_ptr part2_solve_pointer
+@cpy &part2_output ~1
+@call &execute_cpu
+jf ~1 &failed
+
+# okay, we found a match!
+jt left_to_match &recurse
+
+# AND IT'S A SOLUTION!
+# turn it into an integer
+@cpy a_ptr ~1
+@cpy a_len ~2
+@call &bits_to_int
+@jmp &solution_found
+
+recurse:
+
+add left_to_match -1 ~1
+add match_ptr -1 ~2
+@cpy a_ptr ~3
+@cpy a_len ~4
+@call &solve_part2_core
+jt ~1 &solution_found
+
+failed:
+
+# welp! try the next one, I guess
+@cpy old_len a_len
+add nyb 1 nyb
+@jlt nyb 8 &next_nyb
+
+@cpy 0 return0
+@jmp &bail
+
+solution_found:
+@cpy ~1 return0
+bail:
+
+@endfn
+
+
+############################################################################################
+
+# output routine for part 2
+
+@fn 1 part2_output(value) global(part2_solve_pointer)
+
+add value '0' out_value
+out out_value:0
+out ','
+
+@cpy part2_solve_pointer program_read_ptr
+add part2_solve_pointer 1 part2_solve_pointer
+eq value program_read_ptr:*0 return0
+
+@endfn
 
 ############################################################################################
 #
@@ -114,7 +220,6 @@ hlt
 
 print_registers_and_terminate:
 
-out '\n'
 out prat_regname:'A'
 out ':'
 out 32
@@ -809,7 +914,6 @@ int_to_bits:
 @cpy max_reg_size ~4
 @jmp &int_to_bits_core
 
-
 #####################################
 # int_to_bits_core(buf_ptr, num, pow2, buf_size) -> (count_of_bits_written, num_masked)
 #
@@ -956,6 +1060,7 @@ infinite_loop_detected:
 @raw reg_B_isalias: 0
 @raw reg_B_start: &regbuf_B1
 @raw reg_D_start: &regbuf_B2
+@raw part2_solve_pointer: 0
 @raw regbuf_A:  0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0
 @raw regbuf_C:  0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0
 @raw regbuf_B1:  0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0
