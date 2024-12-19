@@ -127,6 +127,8 @@ add &regbuf_A max_reg_size ~3
 
 add a_ptr -3 a_ptr
 @cpy 0 nyb
+jt a_len &next_nyb
+add nyb 1 nyb
 next_nyb:
 
 @cpy a_ptr ~1
@@ -152,8 +154,6 @@ add a_len bitcount a_len
 @cpy a_len reg_A_len
 @cpy 0 reg_B_len
 @cpy 0 reg_C_len
-
-out 1000156
 
 @cpy match_ptr part2_solve_pointer
 @cpy &part2_output ~1
@@ -201,10 +201,6 @@ bail:
 # output routine for part 2
 
 @fn 1 part2_output(value) global(part2_solve_pointer)
-
-add value '0' out_value
-out out_value:0
-out ','
 
 @cpy part2_solve_pointer program_read_ptr
 add part2_solve_pointer 1 part2_solve_pointer
@@ -388,6 +384,7 @@ no_truncate:
 
 @fn 1 execute_cpu(output_callback) local(opcode, operand) global(program_code, program_length, pc, reg_A_ptr, reg_A_len, reg_B_ptr, reg_B_len, reg_C_ptr, reg_C_len, reg_D_ptr, reg_D_len, reg_B_start, reg_D_start, invalid_opcode_or_operand, bits_to_int, infinite_loop_detected, dealias_b, copy_c_to_d, xor_b_and_d, int_to_bits, reg_B_isalias)
 
+@cpy 0 pc
 @cpy 1 adv_executed
 @cpy 999999 watchdog
 
