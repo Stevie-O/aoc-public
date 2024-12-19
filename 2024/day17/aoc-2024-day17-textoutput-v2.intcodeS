@@ -270,6 +270,7 @@ add copy_count -1 copy_count
 jt copy_count:0 &copy_loop
 
 @cpy reg_B_start reg_B_ptr
+@cpy 0 reg_B_isalias
 
 nothing_to_do:
 
@@ -346,6 +347,9 @@ bail:
 
 # put things the way we want them to be: length of B is greater than or equal to the length of D
 @call &swap_b_and_d
+# degenerate case: D is zero. We are XORing with zero.
+jf reg_D_len &no_truncate
+
 lt reg_D_len reg_B_len unequal_length
 
 @cpy 0 ans_bitlength
@@ -416,7 +420,7 @@ add operand -4 operand
 @jeq opcode 2 &bst_from_reg
 mul operand 2 operand
 add &reg_A_ptr operand reg_bits_ptr
-add reg_bits_ptr 2 reg_len_ptr
+add reg_bits_ptr 1 reg_len_ptr
 @cpy reg_bits_ptr:*0  ~1
 @cpy reg_len_ptr:*0 ~2
 
