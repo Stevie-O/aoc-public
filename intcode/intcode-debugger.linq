@@ -149,7 +149,7 @@ static HashSet<int> MemoryBreakPoints = new HashSet<int>()
 
 IntcodeCpu RunUntilHalt(IntcodeCpu cpu)
 {
-	int limit = 200_000;
+	int limit = 2_000_000;
 	while (!cpu.IsHalted)
 	{
 		if (Breakpoints.Contains(cpu.Pc))
@@ -187,7 +187,7 @@ readonly struct IntcodeInput
 			value = _input[offset++];
 		} while (value == '\0');
 
-		if (true)
+		if (false)
 			Console.WriteLine("Read character: {0}",
 					(value < 0x20) ? $"0x{value:x2}" : "'" + char.ConvertFromUtf32((int)value) + "'"
 				);

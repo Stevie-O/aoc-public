@@ -155,9 +155,16 @@ add a_len bitcount a_len
 @cpy 0 reg_B_len
 @cpy 0 reg_C_len
 
+#out 1000158
+#out reg_A_ptr
+#out reg_A_len
+
 @cpy match_ptr part2_solve_pointer
 @cpy &part2_output ~1
 @call &execute_cpu
+
+#out '\n'
+
 jf ~1 &failed
 
 # okay, we found a match!
@@ -201,6 +208,11 @@ bail:
 # output routine for part 2
 
 @fn 1 part2_output(value) global(part2_solve_pointer)
+
+#out 10000212
+#add value '0' value_digit
+#out value_digit:0
+#out ','
 
 @cpy part2_solve_pointer program_read_ptr
 add part2_solve_pointer 1 part2_solve_pointer
@@ -286,10 +298,12 @@ nothing_to_do:
 
 @fn 0 copy_c_to_d() global(reg_C_ptr, reg_C_len, reg_D_ptr, reg_D_len, reg_D_start)
 
+@cpy reg_C_len reg_D_len
+jf reg_C_len &noop
 @cpy reg_C_ptr copy_src
 @cpy reg_D_start copy_dst
 @cpy reg_C_len copy_count
-@cpy reg_C_len reg_D_len
+
 
 copy_loop:
 @cpy copy_src:*0 copy_dst:*0
@@ -298,6 +312,7 @@ add copy_dst 1 copy_dst
 add copy_count -1 copy_count
 jt copy_count:0 &copy_loop
 
+noop:
 @cpy reg_D_start reg_D_ptr
 
 @endfn
@@ -407,6 +422,12 @@ add pc 1 pc
 add &program_code pc instr_ptr2
 @cpy instr_ptr2:*0 operand
 add pc 1 pc
+
+# helpful for tracing
+#out 1000423
+#out pc
+#out opcode
+#out operand
 
 # combo operand values 0-3 are literals
 @jle operand 3 &operand_is_literal
@@ -665,9 +686,12 @@ bxc:
 @call &copy_c_to_d
 
 # step 2: B = B ^ D
-@call &xor_b_and_d
+@cpy &execute_next_instruction ~0
+@jmp &xor_b_and_d
 
 
+# shouldn't get here
+hlt
 normal_halt:
 @cpy 1 return0
 abort_halt:
@@ -1062,10 +1086,10 @@ infinite_loop_detected:
 @raw reg_B_start: &regbuf_B1
 @raw reg_D_start: &regbuf_B2
 @raw part2_solve_pointer: 0
-@raw regbuf_A:  0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0
-@raw regbuf_C:  0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0
-@raw regbuf_B1:  0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0
-@raw regbuf_B2:  0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0
+@raw regbuf_A:  0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 
+@raw regbuf_C:  0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 
+@raw regbuf_B1:  0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 
+@raw regbuf_B2:  0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 
 @raw pc: 0
 
 #@raw &pc &program_code &program_length
