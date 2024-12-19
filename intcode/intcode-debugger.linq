@@ -41,19 +41,37 @@ Register C: 1
 Program: 5,2
 ")*/
 
+
+/*
 @"Register A: 2024
 Register B: 0
 Register C: 0
 
 Program: 0,3,5,4,3,0
-"),
+"
+*/
+@"Register A: 56256477
+Register B: 0
+Register C: 0
+
+Program: 2,4,1,0,7,5,1,5,0,3,4,5,5,5,3,0
+"
+/*
+@"Register A: 729
+Register B: 0
+Register C: 0
+
+Program: 0,1,5,4,3,0
+"*/),
 		//o => o.Dump("output")
 		PrintOutput
 	);
 
 	try
 	{
-		ExecutionLogFile = new StreamWriter(
+	//	cpu = cpu.Patch((1, 1));
+		
+		if (false) ExecutionLogFile = new StreamWriter(
 				Path.Combine( Path.GetDirectoryName(Util.CurrentQueryPath), @"intcode-execlog.txt"), false, new UTF8Encoding(false));
 		Console.WriteLine("PART 1");
 		RunUntilHalt(cpu);
@@ -149,7 +167,7 @@ static HashSet<int> MemoryBreakPoints = new HashSet<int>()
 
 IntcodeCpu RunUntilHalt(IntcodeCpu cpu)
 {
-	int limit = 2_000_000;
+	int limit = 10_000_000;
 	while (!cpu.IsHalted)
 	{
 		if (Breakpoints.Contains(cpu.Pc))
