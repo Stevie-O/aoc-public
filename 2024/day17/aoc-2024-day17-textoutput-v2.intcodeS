@@ -1,4 +1,4 @@
-add part2:0 loose_parser:0 dummy:dummy
+add debug_mode:2 loose_parser:0 dummy:dummy
 rbo &program_code
 
 ######################
@@ -25,9 +25,11 @@ after_reading_registers:
 read_program_input_loop:
 
 # read a single octal digit
-in ~0
-@jlt ~0 '0' &input_parse_error
-@jgt ~0 '7' &input_parse_error
+in program_byte
+@jlt program_byte '0' &input_parse_error
+@jgt program_byte '7' &input_parse_error
+
+add program_byte:0 -'0' ~0
 rbo 1
 add program_length 1 program_length
 
@@ -68,6 +70,8 @@ rbo 1
 @cpy ~1 reg_C_len
 
 
+@jne debug_mode 2 &no_reg_parse_debug
+
 ###### Debug output for this stuff
 @cpy reg_A_ptr ~1
 @cpy reg_A_len ~2
@@ -84,6 +88,8 @@ out ~1
 @call &bits_to_int
 out ~1
 
+no_reg_parse_debug:
+
 ############################################################################################
 
 # okay! execute part 1
@@ -92,7 +98,10 @@ out ~1
 @call &execute_cpu
 out '\n'
 
-jf part2 &print_registers_and_terminate
+jt debug_mode &print_registers_and_terminate
+
+
+@jmp &unsolvable_input
 
 hlt
 
@@ -138,23 +147,159 @@ out value
 
 
 ############################################################################################
+#
+# dealias_b
+#
+# If B is currently occupying its own storage, is a no-op.
+# Otherwise, if B is currently aliased to A (or C, if someone did BST C before CDV has been executed),
+# copies the aliased data into the region pointed to by reg_B_start, and repoints B to that buffer.
+
+@fn 0 dealias_b() global(reg_B_ptr, reg_B_len, reg_B_start, reg_B_isalias)
+
+jf reg_B_isalias &nothing_to_do
+@cpy reg_B_ptr copy_src
+@cpy reg_B_start copy_dst
+@cpy reg_B_len copy_count
+
+copy_loop:
+@cpy copy_src:*0 copy_dst:*0
+add copy_src 1 copy_src
+add copy_dst 1 copy_dst
+add copy_count -1 copy_count
+jt copy_count:0 &copy_loop
+
+@cpy reg_B_start reg_B_ptr
+
+nothing_to_do:
+
+@endfn
+
+############################################################################################
+#
+# copy_c_to_d
+#
+# Copy the contents of the 'C' register over top of the 'D' register.
+#
+# if this looks a lot like dealias_B, well, there's a reason for that
+
+@fn 0 copy_c_to_d() global(reg_C_ptr, reg_C_len, reg_D_ptr, reg_D_len, reg_D_start)
+
+@cpy reg_C_ptr copy_src
+@cpy reg_D_start copy_dst
+@cpy reg_C_len copy_count
+@cpy reg_C_len reg_D_len
+
+copy_loop:
+@cpy copy_src:*0 copy_dst:*0
+add copy_src 1 copy_src
+add copy_dst 1 copy_dst
+add copy_count -1 copy_count
+jt copy_count:0 &copy_loop
+
+@cpy reg_D_start reg_D_ptr
+
+@endfn
+
+############################################################################################
+#
+# swap_b_and_d()
+#
+# Swap the 'b' and 'd' registers so that 'b' is the longer one and 'd' is the shorter one.
+#
+
+@fn 0 swap_b_and_d() local(tmp) global(dealias_b, reg_B_ptr, reg_B_len, reg_B_start, reg_D_ptr, reg_D_len, reg_D_start, reg_B_isalias)
+
+# dealias B if needed
+@callt reg_B_isalias &dealias_b
+
+@jge reg_B_len reg_D_len &bail
+
+# okay, swap B and D
+
+# swap their pointers
+@cpy reg_B_ptr tmp
+@cpy reg_D_ptr reg_B_ptr
+@cpy tmp reg_D_ptr
+
+# swap their lengths
+@cpy reg_B_len tmp
+@cpy reg_D_len reg_B_len
+@cpy tmp reg_D_len
+
+# swap their head-buffer pointers
+@cpy reg_B_start tmp
+@cpy reg_D_start reg_B_start
+@cpy tmp reg_D_start
+
+bail:
+@endfn
+
+######################################################################################
+#
+# xor_b_and_d()
+#
+# Computes B = B ^ D.
+#
+
+@fn 0 xor_b_and_d() local(ans_bitlength, bits_read) global(swap_b_and_d, reg_B_ptr, reg_B_len, reg_D_ptr, reg_D_len)
+
+# put things the way we want them to be: length of B is greater than or equal to the length of D
+@call &swap_b_and_d
+lt reg_D_len reg_B_len unequal_length
+
+@cpy 0 ans_bitlength
+@cpy 0 bits_read
+@cpy reg_D_len bits_left
+@cpy reg_B_ptr b_read_ptr
+@cpy reg_B_ptr b_write_ptr
+@cpy reg_D_ptr d_read_ptr
+
+xor_loop:
+
+# XOR the bits
+eq b_read_ptr:*0 d_read_ptr:*0 bits_equal
+eq bits_equal:0 0 b_write_ptr:*0
+
+# advance!
+add bits_read 1 bits_read
+add b_read_ptr 1 b_read_ptr
+add b_write_ptr 1 b_write_ptr
+add d_read_ptr 1 d_read_ptr
+
+jt bits_equal &wrote_0
+@cpy bits_read ans_bitlength
+wrote_0:
+
+add bits_left -1 bits_left
+jt bits_left:0 &xor_loop
+
+jt unequal_length:0 &no_truncate
+@cpy ans_bitlength reg_B_len
+no_truncate:
+@endfn
+
+############################################################################################
 # CPU execution routine
 
-@fn 1 execute_cpu(output_callback) local(opcode, operand, tmp1) global(program_code, program_length, pc, reg_A_ptr, reg_A_len, reg_B_ptr, reg_B_len, reg_C_ptr, reg_C_len, reg_D_ptr, reg_D_len, reg_B_start, reg_D_start, invalid_opcode_or_operand, bits_to_int, infinite_loop_detected)
- 
+@fn 1 execute_cpu(output_callback) local(opcode, operand) global(program_code, program_length, pc, reg_A_ptr, reg_A_len, reg_B_ptr, reg_B_len, reg_C_ptr, reg_C_len, reg_D_ptr, reg_D_len, reg_B_start, reg_D_start, invalid_opcode_or_operand, bits_to_int, infinite_loop_detected, dealias_b, copy_c_to_d, xor_b_and_d, int_to_bits, reg_B_isalias)
+
 @cpy 1 adv_executed
+@cpy 999999 watchdog
 
 execute_next_instruction:
 
-@cpy 1 return0
+add watchdog -1 watchdog
+jf watchdog:0 &infinite_loop_detected
+
+# spent WAY too long debugging a crash because return0 and output_callback are in the SAME STORAGE LOCATION
 
 # fetch instruction and operand
-@jge pc program_length &halt
+@jge pc program_length &normal_halt
 add &program_code pc instr_ptr1
 @cpy instr_ptr1:*0 opcode
 add pc 1 pc
 add &program_code pc instr_ptr2
-@cpy instr_ptr2:*0 opcode
+@cpy instr_ptr2:*0 operand
 add pc 1 pc
 
 # combo operand values 0-3 are literals
@@ -166,6 +311,7 @@ add pc 1 pc
 # okay, it's a combo operand. do a register lookup
 @jgt operand 6 &invalid_opcode_or_operand
 add operand -4 operand
+@jeq opcode 2 &bst_from_reg
 mul operand 2 operand
 add &reg_A_ptr operand reg_bits_ptr
 add reg_bits_ptr 2 reg_len_ptr
@@ -179,12 +325,12 @@ add reg_bits_ptr 2 reg_len_ptr
 @jlt ~2 4 &no_combo_truncate
 eq opcode 2 nct_is_bst
 eq opcode 5 nct_is_out
-add nct_is_bst nct_is_out nct_is_bst_or_out
+add nct_is_bst:0 nct_is_out:0 nct_is_bst_or_out
 jf nct_is_bst_or_out:0 &no_combo_truncate
 
 # okay, it's opcode 2 or 5 AND the source register is more than 3 bits wide. reduce it to 3
 @cpy 3 ~2
-nct_is_bst_or_out:
+no_combo_truncate:
 
 @call &bits_to_int
 @cpy ~1 operand
@@ -221,10 +367,10 @@ add reg_A_ptr operand reg_A_ptr
 mul operand -1 operand
 add reg_A_len operand reg_A_len
 
-# we modified A. 
+# we modified A. make a note of this, so that JNZ knows we're doing meaningful work
 @cpy 1 adv_executed
 
-jmp &execute_next_instruction
+@jmp &execute_next_instruction
 
 
 #########
@@ -240,13 +386,14 @@ bdv:
 bdv_no_truncate:
 
 # we're gonna cheat and have reg_B point into reg_A.  this will make certain things FAR more efficient.
-# however, since most other operations can modify B -- BXL, BST, 
+# however, since most other operations can modify B -- BXL, BST -- we need to make a note of this fact so
+# we can actually do the copying if it turns out to be necessary later 
 @cpy 1 reg_B_isalias
 add reg_A_ptr operand reg_B_ptr
 mul operand -1 operand
 add reg_A_len operand reg_B_len
 
-jmp &execute_next_instruction
+@jmp &execute_next_instruction
 
 #########
 #
@@ -280,7 +427,7 @@ out:
 jt ~1 &execute_next_instruction
 # if output_callback returns false, abort execution
 @cpy ~1 return0
-@jmp halt
+@jmp &abort_halt
 
 
 #########
@@ -292,24 +439,84 @@ jnz:
 # if reg_A is zero-length, we don't jump.
 jf reg_A_len &execute_next_instruction
 
-# if A hasn't been modified since the last backwards JNZ call, this program will probably never terminate
-jf adv_executed:1 &infinite_loop_detected
-
+add pc -2 jnz_jmpfrom
 # if this is a *forwards* jump, then it can't form an infinite loop
-lt pc operand adv_executed
+@jlt jnz_jmpfrom:0 operand &jnz_jump
 
+# if A hasn't been modified since the last backwards JNZ call, this program will *probably* never terminate,
+# though I Haven't proven it
+jf adv_executed:1 &infinite_loop_detected
+@cpy 0 adv_executed
+
+jnz_jump:
 # jump to the specified address
 @cpy operand pc
 
 @jmp &execute_next_instruction
 
+#######
+#
+#    2=BST
 
-@cpy operand ~1
-@call output_callback
-jt ~1 &execute_next_instruction
-# if output_callback returns false, abort execution
-@cpy ~1 return0
-@jmp halt
+#  **** BST <reg>
+@raw bst_reg_disptable: &bst_from_a &bst_from_b &bst_from_c
+
+bst_from_reg:
+
+add &bst_reg_disptable operand bfr_jump_address
+@jmp bfr_jump_address:*0
+
+#  *** BST A (2,4)
+bst_from_a:
+
+@cpy 1 reg_B_isalias
+@cpy reg_A_ptr reg_B_ptr
+@cpy reg_A_len reg_B_len
+
+@jmp &bst_from_b
+
+#  *** BST C (2,6)
+bst_from_c:
+
+# note that C can only use its own storage (at start of program) or be an alias to A (after any CDV instruction)
+@cpy 1 reg_B_isalias
+@cpy reg_C_ptr reg_B_ptr
+@cpy reg_C_len reg_B_len
+@jmp &bst_from_b
+
+#  *** BST B (2,5)
+#  this just truncates B to 3 bits
+
+bst_from_b:
+@jle reg_B_len 3 &execute_next_instruction
+@cpy 3 reg_B_len
+@jmp &execute_next_instruction
+
+# *** BST with a literal: 0, 1, 2, or 3
+bst:
+
+# point B directly at its buffer
+@cpy reg_B_start reg_B_ptr
+@cpy 0 reg_B_len 
+# if operand is 0, we're done. B is now zero. 
+jf operand &execute_next_instruction
+
+lt 1 operand reg_B_len
+add reg_B_len 1 reg_B_len
+# now reg_B_len is correct: 1 for 1, 2 for 2 (10) or 3 (11)
+
+# write the low-order bit to *reg_B_ptr
+@cpy reg_B_ptr low_bit_write
+eq operand 2 low_bit
+eq low_bit 0 low_bit
+@cpy low_bit:0 low_bit_write:*0
+# if that's the only bit, we're done
+@jeq reg_B_len 1 &execute_next_instruction
+
+# if there's a high-order bit, it's going to be 1
+add reg_B_ptr 1 high_bit_addr
+@cpy 1 high_bit_addr:*0
+@jmp &execute_next_instruction
 
 #######
 #
@@ -317,17 +524,23 @@ jt ~1 &execute_next_instruction
 
 bxl:
 
-# TODO
-hlt
+# BXL with literal.
 
-#######
-#
-#    2=BST
+# first: Dealias B if needed
+@callt reg_B_isalias &dealias_b
 
-bst:
+# second: decode literal into work register D
+@cpy reg_D_start reg_D_ptr
+@cpy reg_D_start ~1
+@cpy operand ~2
+@call &int_to_bits
+@cpy ~1 reg_D_len
 
-# TODO
-hlt
+# now do B ^= D
+
+@cpy &execute_next_instruction ~0
+@jmp &xor_b_and_d
+
 
 #######
 #
@@ -335,83 +548,25 @@ hlt
 
 bxc:
 
-# TODO
-hlt
+# this one's kind of a pain.
+# also, it's the only one that's not part of any puzzle inputs,
+# so I technically could avoid implementing it, but I'm up for the challenge.
+# However, I won't put a lot of work into *optimizing* it, not like I did with the other instructions
 
-halt:
+# B ^= C
+
+# step 1:copy C to D
+@call &copy_c_to_d
+
+# step 2: B = B ^ D
+@call &xor_b_and_d
+
+
+normal_halt:
+@cpy 1 return0
+abort_halt:
 @endfn
 
-@cpy &dists ~1
-@cpy &dists_end ~2
-@call &read_numbers
-@jne race_count ~1 &time_dist_mismatch_detected
-
-solve_loop:
-add timeptr:times 0 ~1
-add distptr:dists 0 ~2
-@call &win_race
-mul ~1 answer_accum answer_accum
-add -1 race_count race_count
-add 1 timeptr timeptr
-add 1 distptr distptr
-jt race_count &solve_loop
-
-#out answer_accum
-@cpy answer_accum ~1
-@call &print_decimal
-out '\n'
-
-hlt
-
-@fn 1 win_race(timelimit, bestdist) local(windist, bsquared, fourac, sqrtval, mintime, sailtime, dist, maxtime) global(isqrt, lshr, unsolvable_input)
-
-# (timelimit +/- sqrt(timelimit * timelimit - 4 * bestdist)) / 2
-
-# to win we need at least 1 more than bestdist
-add bestdist 1 windist
-
-mul timelimit timelimit bsquared
-mul -4 bestdist fourac
-add bsquared fourac ~1
-# if discriminant is less than 1, the puzzle is unsolvable (it might even be unsolvable *at* 1, I'm not sure)
-@jlt ~1 1 &unsolvable_input
-@call &isqrt
-mul ~1 -1 sqrtval
-add timelimit sqrtval ~1
-# divide by two
-@call &lshr
-@cpy ~1 mintime
-
-
-# find the first button-press time that wins
-guess_and_check_min:
-mul mintime -1 negmintime
-add timelimit negmintime:0 sailtime
-mul mintime sailtime dist
-lt dist windist not_first_winner
-jf not_first_winner:0 &found_mintime
-add mintime 1 mintime
-@jmp &guess_and_check_min
-found_mintime:
-
-# find the first time after mintime that the button-press time does *not* win
-# protip: sailing 'sailtime' DOES win, for the same reason sailing 'mintime'
-@cpy sailtime maxtime
-
-guess_and_check_max:
-mul maxtime -1 negmaxtime
-add timelimit negmaxtime:0 sailtime
-mul maxtime sailtime dist
-lt dist windist not_max_winner
-jt not_max_winner:0 &found_maxtime
-add maxtime 1 maxtime
-@jmp &guess_and_check_max
-found_maxtime:
-
-mul mintime -1 return0
-add maxtime return0 return0
-
-@endfn
 
 ############################
 ## REGISTER READ ROUTINE
@@ -474,7 +629,9 @@ in rr_intmp
 @cpy &program_str_match rr_readfrom
 @jmp &rr_str_match_next_char
 
-@fn 1 read_numbers(buffer, endbuffer) local(accum, numcount, digcount, intmp) global(part2, overflow_detected, too_many_races_detected)
+@raw &read_numbers
+
+@fn 1 read_numbers(buffer, endbuffer) local(part2, accum, numcount, digcount, intmp) global(overflow_detected, too_many_races_detected)
 
 @cpy 0 numcount
 @cpy buffer outdest
@@ -755,10 +912,6 @@ too_many_races_detected:
 @cpy &str_too_many_races errmsg_ptr
 @jmp &die_with_message
 
-time_dist_mismatch_detected:
-@cpy &str_time_dist_mismatch errmsg_ptr
-@jmp &die_with_message
-
 unsolvable_input:
 @cpy &str_unsolvable_input errmsg_ptr
 @jmp &die_with_message
@@ -781,21 +934,13 @@ infinite_loop_detected:
 
 @str str_overflow_detected:"Integer overflow detected\n"
 @str str_too_many_races:"Too many races input\n"
-@str str_time_dist_mismatch:"Number of times does not match number of distances\n"
 @str str_unsolvable_input:"Unsolvable input detected\n"
 @str str_internal_error:"Internal error\n"
 @str str_input_parse_error:"Input parse error\n"
 @str str_invalid_opcode_or_operand:"Invalid opcode or combo operand\n"
 @str str_infinite_loop_detected:"Infinite loop detected\n"
 
-@raw 	race_count:0 answer_accum:1
-# arbitrary limit of 10 races
-@raw times: 0 0 0 0 0 0 0 0 0 0
-#times_end:
-@raw dists: 0 0 0 0 0 0 0 0 0 0
-dists_end:
-
-@raw &loose_parser &part1_output &reg_B_ptr &reg_B_start &reg_C_ptr &reg_D_len &reg_B_len &reg_D_start &reg_D_ptr &reg_B_isalias &infinite_loop_detected
+@raw &loose_parser &part1_output
 
 @raw max_reg_size: 64
 
@@ -807,7 +952,7 @@ dists_end:
 @raw reg_C_ptr: &regbuf_C reg_C_len: 0
 @raw reg_D_ptr: &regbuf_B2 reg_D_len: 0
 # register "D" is a temporary register used by the execution core
-# if reg_B_isalias=1, reg_B_ptr actually points at A
+# if reg_B_isalias=1, reg_B_ptr actually points at A (or maybe C. The important part is, it doesn't own the bits storing its value.)
 @raw reg_B_isalias: 0
 @raw reg_B_start: &regbuf_B1
 @raw reg_D_start: &regbuf_B2

@@ -5,16 +5,19 @@ use warnings FATAL => 'all';
 use Getopt::Long;
 
 my %opt;
-die unless GetOptions(\%opt, 'trace', 'labels', 'randomize');
+die unless GetOptions(\%opt, 'trace', 'labels', 'randomize', 'mapfile=s');
 
 my $asm = do { local $/; <> };
 my ($bytecode, $label_addr) = compile($asm,\%opt);
 if ($opt{trace}) {
   warn "\n";
 }
-if ($opt{labels}) {
-  warn "$label_addr->{$_}\t$_\n" for sort { $label_addr->{$a} <=> $label_addr->{$b} || $a cmp $b } keys %$label_addr;
-  warn "\n";
+if ($opt{labels} || defined $opt{mapfile}) {
+  my $mapfile;
+  if (!defined $opt{mapfile}) { $mapfile = *STDERR; }
+  else { open($mapfile, '>', $opt{mapfile}) or die "can't write to $opt{mapfile}: $!"; }
+  print $mapfile "$label_addr->{$_}\t$_\n" for sort { $label_addr->{$a} <=> $label_addr->{$b} || $a cmp $b } keys %$label_addr;
+  print $mapfile "\n";
 }
 print join(",", @$bytecode)."\n";
 
@@ -158,9 +161,35 @@ sub compile {
         '@jmp ~0',
       );
     },
+	callt => sub {
+      my ($line) = @_;
+      die "invalid \@callt syntax: $line" unless $line =~ /^\@callt\s+(\S+\s+)*(\S+)\s*$/;
+	  my $fullexpr = "$1$2";
+	  my $fnexpr = $2;
+      $warn->("\@callt: $fnexpr is not an address") unless $fnexpr =~ /^(?:\w+\:)?\&\w+$/;
+      my $ret_label = "retaddr".$gen_uid->();
+      return (
+        "\@cpy &$ret_label ~0",
+        "jt $fullexpr",
+        "$ret_label:",
+      );
+	},
+	callf => sub {
+      my ($line) = @_;
+      die "invalid \@callt syntax: $line" unless $line =~ /^\@callf\s+(\S+\s+)*(\S+)\s*$/;
+	  my $fullexpr = "$1$2";
+	  my $fnexpr = $2;
+      $warn->("\@callt: $fnexpr is not an address") unless $fnexpr =~ /^(?:\w+\:)?\&\w+$/;
+      my $ret_label = "retaddr".$gen_uid->();
+      return (
+        "\@cpy &$ret_label ~0",
+        "jf $fullexpr",
+        "$ret_label:",
+      );
+	},
     call => sub {
       my ($line) = @_;
-      die unless $line =~ /^\@call\s+(\S+)\s*$/;
+      die "invalid \@call syntax: $line"  unless $line =~ /^\@call\s+(\S+)\s*$/;
       my $fnexpr = $1;
       $warn->("\@call $fnexpr is not an address") unless $fnexpr =~ /^(?:\w+\:)?\&\w+$/;
       my $ret_label = "retaddr".$gen_uid->();
@@ -265,8 +294,9 @@ sub compile {
           die "wrong length lval definition for instruction $in_vals[0]" unless $instr{$in_vals[0]}{args} == @{$instr{$in_vals[0]}{lvals}};
           $out_vals[$i] = $instr{$in_vals[0]}{opcode};
 
-					$warn->("jump to variable address in line: $line") if $in_vals[0] =~ /^j[tf]$/ && 	$in_vals[2] !~ /^(?:\w+\:)?(?:\&\w+|\~0)$|^\w+:\*-?\w+$/;
-				}
+		  $warn->("jump to variable address in line: $line") 
+		  if $in_vals[0] =~ /^j[tf]$/ && 	$in_vals[2] !~ /^(?:\w+\:)?(?:\&\w+|\~0)$|^\w+:\*-?\w+$/;
+		}
       } else {
         my $addr_mode;
 
@@ -276,7 +306,6 @@ sub compile {
           $out_vals[$i] = $val;
         } elsif ($in_vals[$i] =~ /^([\&\*]?)([a-z_]\w*)$/i) {
           my ($mode_str, $label) = ($1, lc $2);
-		  $mode_str = '' if $mode_str eq '*'; # hack for suppressing the 'jump to variable address' warning
           $label = "$label_prefix$label" unless $label_prefix_except{$label};
           if (exists $label_mode{$label}) {
             die "mode flag illegal on label $label with defined mode $label_mode{$label}" if $mode_str ne '';

@@ -9,7 +9,7 @@
 
 void Main()
 {
-	var dir = Path.Combine( Path.GetDirectoryName(Util.CurrentQueryPath), @"../aoc-public/2024/day17");
+	var dir = Path.Combine( Path.GetDirectoryName(Util.CurrentQueryPath), @"../2024/day17");
 	var code_file = File.ReadAllText(Path.Combine(dir, "a.intcode"));
 	_memoryMap = File.ReadAllLines(Path.Combine(dir, "a.map"))
 		.Where(l => l.Trim().Length > 0)
@@ -33,19 +33,20 @@ void Main()
 
 
 	cpu = cpu.WithIO(new IntcodeInput(
+/*
 @"Register A: 4611686018427387903
 Register B: 1048576
 Register C: 1
 
 Program: 5,2
-")
-/*
+")*/
+
 @"Register A: 2024
 Register B: 0
 Register C: 0
 
 Program: 0,3,5,4,3,0
-"*/,
+"),
 		//o => o.Dump("output")
 		PrintOutput
 	);
@@ -137,8 +138,14 @@ void PrintOutput(memval_t value)
 }
 
 static HashSet<int> Breakpoints= new HashSet<int>() { 
+		//528, 798,
 	//93, 
 	};
+
+static HashSet<int> MemoryBreakPoints = new HashSet<int>()
+{
+	//2166,
+};
 
 IntcodeCpu RunUntilHalt(IntcodeCpu cpu)
 {
@@ -391,6 +398,12 @@ struct IntcodeCpu
 	//=> WriteMemory(newPc, Memory.SetItem((int)dest, value), trace);
 	{
 		LogExecutionMessage(string.Format("Storing {0} at address {1}", value, DescribeAddress(dest, Toc)));
+		if (MemoryBreakPoints.Contains(dest))
+		{
+			ExecutionLogFile?.Flush();
+			Console.WriteLine("Write to memory address {0}", dest);
+			Util.Break();
+		}
 		var mem = Memory;
 		if (dest > Memory.Length)
 		{
@@ -453,6 +466,8 @@ struct IntcodeCpu
 		var (a, a_ptr) = ReadValue(direct[0], pa);
 
 		trace.SetArguments(a_ptr);
+		
+		ExecutionLogFile?.WriteLine("Output: {0}", a);
 
 		//a.Dump("OUTPUT");
 		//		_last_output = a;
