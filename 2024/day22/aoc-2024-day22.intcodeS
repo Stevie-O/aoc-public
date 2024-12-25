@@ -125,22 +125,40 @@ out '\n'
 @call &int_to_bits
 @endfn
 
+@fn 1 get_pattern_id(price_head) local(pattern_id, counter) global(price_buffer, price_buffer_end)
+
+@cpy 0 pattern_id
+@cpy 4 counter
+@cpy price_head price_head_ptr
+loop:
+mul pattern_id 19 pattern_id
+add price_head_ptr:*0 pattern_id pattern_id
+add 9 pattern_id pattern_id
+eq price_head_ptr &price_buffer_end wrap_count
+mul wrap_count:0 -4 wrap_count
+add wrap_count price_head_ptr price_head_ptr
+add counter -1 counter
+jt counter &loop
+
+@cpy pattern_id return0
+@endfn
+
 
 ######################
 #
 
-@fn 0 process_monkey() local(itercount, price_head, price_tail, price_count, prev_price, new_price) global(get_current_value, get_current_price, PUZZLE_ITERATIONS, xorshift_step, price_buffer, part1_answer, part2_answer, dle_output, monkey_count)
+@fn 0 process_monkey() local(itercount, price_count, price_head, prev_price, new_price, wrap_tmp, pattern_id) global(pattern_table, get_current_value, get_current_price, PUZZLE_ITERATIONS, xorshift_step, price_buffer, price_buffer_end, part1_answer, part2_answer, dle_output, monkey_count, get_pattern_id)
 
-add monkey_count 1 monkey_count
-@cpy monkey_count ~1
-@call &dle_output
-@call &get_current_value
-@call &dle_output
+#add monkey_count 1 monkey_count
+#@cpy monkey_count ~1
+#@call &dle_output
+#@call &get_current_value
+#@call &dle_output
 
 
 @cpy 0 part2_answer
-@cpy 0 price_head
-@cpy 0 price_tail
+@cpy &price_buffer price_head
+@cpy &price_buffer price_tail
 @cpy 0 price_count
 lt price_buffer dummy:0 dummy
 
@@ -152,12 +170,55 @@ loop:
 @call &get_current_price
 @cpy ~1 new_price
 
+# compute price delta
+add prev_price new_price prev_price
+# write to price buffer
+@cpy prev_price price_tail:*0
+# advance price_tail
+add price_tail 1 price_tail
+eq price_tail &price_buffer_end wrap_tmp
+mul wrap_tmp -4 wrap_tmp
+add wrap_tmp price_tail price_tail
+add price_count 1 price_count
+@jlt price_count 4 &not_enough_prices
+
+@call &get_pattern_id
+@cpy ~1 pattern_id
+mul pattern_id 2 pattern_id
+@jlt pattern_id 388962 &boundscheck_ok
+hlt
+boundscheck_ok:
+add pattern_id &pattern_table monkey_id_ptr_1
+@cpy monkey_id_ptr_1 monkey_id_ptr_2
+add 1 monkey_id_ptr_1 pattern_value_ptr_1
+@cpy pattern_value_ptr_1 pattern_value_ptr_2
+@cpy pattern_value_ptr_1 pattern_value_ptr_3
+
+lt monkey_id_ptr_1:*0 monkey_count is_new_pattern_for_current_monkey
+@cpy monkey_count monkey_id_ptr_2:*0
+mul new_price is_new_pattern_for_current_monkey:0 wrap_tmp
+add wrap_tmp pattern_value_ptr_1:*0 pattern_value_ptr_2:*0
+
+@cpy pattern_value_ptr_3:*0 wrap_tmp
+@jge part2_answer wrap_tmp &no_new_winner
+@cpy wrap_tmp part2_answer
+
+no_new_winner:
+
+# advance price_head
+add price_head 1 price_head
+eq price_head &price_buffer_end wrap_tmp
+mul wrap_tmp -4 wrap_tmp
+add wrap_tmp price_head price_head
+
+not_enough_prices:
+mul new_price -1 prev_price
 add itercount -1 itercount
 jt itercount &loop
 
 @call &get_current_value
 add part1_answer ~1 part1_answer
-@call &dle_output
+#@call &dle_output
 
 @endfn
 
@@ -578,9 +639,9 @@ input_parse_error:
 @str str_part:"Part "
 @str str_answer:" answer: "
 
-@raw monkey_count: 0 part1_answer: 0 part2_answer: 0 price_buffer: 0 0 0 0
+@raw monkey_count: 0  price_buffer: 0 0 0 0 price_buffer_end: part1_answer: 0 part2_answer: 0
 @raw xorshift_state:  0 0 0 0  0 0 0 0  0 0 0 0  0 0 0 0  0 0 0 0  0 0 0 xorshift_state_last: 0
-@raw &dle_mode &dle_output &monkey_count &pattern_table &debug_xorshift_register
+@raw &dle_mode &dle_output &debug_xorshift_register
 
 @raw pattern_table: 0
 
