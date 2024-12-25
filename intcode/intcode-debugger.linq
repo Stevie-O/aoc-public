@@ -202,6 +202,7 @@ readonly struct IntcodeInput
 
 		do
 		{
+			if (offset >= _input.Length) { value = 0; break; }
 			value = _input[offset++];
 		} while (value == '\0');
 
@@ -416,6 +417,7 @@ struct IntcodeCpu
 	//=> WriteMemory(newPc, Memory.SetItem((int)dest, value), trace);
 	{
 		LogExecutionMessage(string.Format("Storing {0} at address {1}", value, DescribeAddress(dest, Toc)));
+		if (dest < 0) throw new Exception("attempt to write to negative memory address");
 		if (MemoryBreakPoints.Contains(dest))
 		{
 			ExecutionLogFile?.Flush();
@@ -423,7 +425,7 @@ struct IntcodeCpu
 			Util.Break();
 		}
 		var mem = Memory;
-		if (dest > Memory.Length)
+		if (dest >= Memory.Length)
 		{
 			// resize memory
 			var moreMem = Memory.ToBuilder();
