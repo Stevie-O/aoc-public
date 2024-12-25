@@ -1,5 +1,5 @@
 jf 0 &start
-@raw dle_mode:0 exec_mode:0 mode1_count: 10 puzzle_iterations: 2000
+@raw dle_mode:0 exec_mode:0 gen_count: 10 gen_skip: 0 gen_label: 0 puzzle_iterations: 2000
 start:
 add exec_mode &routine_table monkey_handler
 rbo &auto__end
@@ -11,10 +11,12 @@ rbo 388962
 # [3]: Intcode Debug Mode
 # [4]: Execution Mode
 #		0 = Solve puzzle normally
-#		1 = Generate MODE1_COUNT successive secret umbers and print them out
-#		2 = Generate MODE1_COUNT successive prices and print them out
-# [5] MODE1_COUNT for mode 1 (default 10)
-# [6] PUZZLE_ITERATIONS (default 2000
+#		1 = Generate GEN_COUNT successive secret numbers starting with #GEN_SKIP and print them out
+#		2 = As #1, but prints prices instead of the secret numbers
+# [5] GEN_COUNT for mode 1/2 (default 10)
+# [6] GEN_SKIP for mode 1/2
+# [7] GEN_LABEL for mode 1/2
+# [8] PUZZLE_ITERATIONS (default 2000
 
 ######################
 #
@@ -51,7 +53,7 @@ hlt
 
 ######################
 #
-# generate_secrets: print the next MODE1_COUNT (default 10) secret values and exit
+# generate_secrets: print the next GEN_COUNT (default 10) secret values and exit
 
 generate_secrets:
 
@@ -60,7 +62,7 @@ generate_secrets:
 
 ######################
 #
-# generate_prices: print the next MODE1_COUNT (default 10) prices and exit
+# generate_prices: print the next GEN_COUNT (default 10) prices and exit
 
 generate_prices:
 
@@ -68,19 +70,31 @@ generate_prices:
 @jmp &generate_secrets_core
 
 
-@fn 0 generate_secrets_core(modulus) local(counter) global(print_decimal, MODE1_COUNT, xorshift_step, get_current_val_core)
+@fn 0 generate_secrets_core(modulus) local(counter, skipcount) global(print_decimal, GEN_COUNT, GEN_SKIP, GEN_LABEL, xorshift_step, get_current_val_core)
 
-@cpy MODE1_COUNT counter
+@cpy 0 counter
+@cpy GEN_SKIP skipcount
 @jmp &print_first
 loop:
 @call &xorshift_step
 print_first:
+add skipcount -1 skipcount
+@jge skipcount 0 &loop
+
+jf GEN_LABEL &no_print_label
+add GEN_SKIP counter ~1
+@call &print_decimal
+out ':'
+out 32
+no_print_label:
+
 @cpy modulus ~1
 @call &get_current_val_core
 @call &print_decimal
 out '\n'
-add -1 counter counter
-jt counter &loop
+
+add counter 1 counter
+@jle counter GEN_COUNT &loop
 out '\n'
 @endfn
 
@@ -115,7 +129,14 @@ out '\n'
 ######################
 #
 
-@fn 0 process_monkey() local(itercount, price_head, price_tail, price_count, prev_price, new_price) global(get_current_value, get_current_price, PUZZLE_ITERATIONS, xorshift_step, price_buffer, part1_answer, part2_answer, dle_output)
+@fn 0 process_monkey() local(itercount, price_head, price_tail, price_count, prev_price, new_price) global(get_current_value, get_current_price, PUZZLE_ITERATIONS, xorshift_step, price_buffer, part1_answer, part2_answer, dle_output, monkey_count)
+
+add monkey_count 1 monkey_count
+@cpy monkey_count ~1
+@call &dle_output
+@call &get_current_value
+@call &dle_output
+
 
 @cpy 0 part2_answer
 @cpy 0 price_head
@@ -136,6 +157,7 @@ jt itercount &loop
 
 @call &get_current_value
 add part1_answer ~1 part1_answer
+@call &dle_output
 
 @endfn
 
