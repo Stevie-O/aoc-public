@@ -7,9 +7,11 @@
   <Namespace>System.Globalization</Namespace>
 </Query>
 
+const bool WRITE_EXECLOG = false;
+
 void Main()
 {
-	var dir = Path.Combine( Path.GetDirectoryName(Util.CurrentQueryPath), @"../2024/day17");
+	var dir = Path.Combine( Path.GetDirectoryName(Util.CurrentQueryPath), @"../2024/day22");
 	var code_file = File.ReadAllText(Path.Combine(dir, "a.intcode"));
 	_memoryMap = File.ReadAllLines(Path.Combine(dir, "a.map"))
 		.Where(l => l.Trim().Length > 0)
@@ -50,11 +52,7 @@ Register C: 0
 Program: 0,3,5,4,3,0
 "
 */
-@"Register A: 56256477
-Register B: 0
-Register C: 0
-
-Program: 2,4,1,0,7,5,1,5,0,3,4,5,5,5,3,0
+@"123
 "
 /*
 @"Register A: 729
@@ -71,7 +69,7 @@ Program: 0,1,5,4,3,0
 	{
 	//	cpu = cpu.Patch((1, 1));
 		
-		if (false) ExecutionLogFile = new StreamWriter(
+		if (WRITE_EXECLOG) ExecutionLogFile = new StreamWriter(
 				Path.Combine( Path.GetDirectoryName(Util.CurrentQueryPath), @"intcode-execlog.txt"), false, new UTF8Encoding(false));
 		Console.WriteLine("PART 1");
 		RunUntilHalt(cpu);
