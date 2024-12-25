@@ -198,8 +198,8 @@ mul n -1 n
 positive:
 @cpy n ~1
 @cpy 1 ~2
-@call &print_next_decimal_digit
-@jmp &exitfun
+@cpy &exitfun ~0
+@jmp &print_next_decimal_digit
 print_zero: out '0'
 exitfun:
 @endfn
@@ -324,7 +324,7 @@ done:
 @cpy -11 ~1
 @call &xorshift_left
 #@call &debug_xorshift_register
-out '\n'
+#out '\n'
 @endfn
 
 #####################################
