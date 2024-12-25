@@ -107,6 +107,19 @@ out '\n'
 
 @endfn
 
+@fn 0 debug_xorshift_register() global(xorshift_state)
+
+@cpy 24 counter
+@cpy &xorshift_state read_ptr
+loop:
+add read_ptr:*0 '0' ~1
+out ~1
+add read_ptr 1 read_ptr
+add counter -1 counter
+jt counter:0 &loop
+out '\n'
+@endfn
+
 #####################################
 #
 # read_integer()
@@ -299,13 +312,19 @@ done:
 
 #####################################
 # xorshift_step
-@fn 0 xorshift_step() global(xorshift_left, xorshift_right)
-@cpy 6 ~1
+@fn 0 xorshift_step() global(xorshift_left, xorshift_right, debug_xorshift_register)
+
+@call &debug_xorshift_register
+@cpy -6 ~1
 @call &xorshift_left
+@call &debug_xorshift_register
 @cpy 5 ~1
 @call &xorshift_right
-@cpy 11 ~1
+@call &debug_xorshift_register
+@cpy -11 ~1
 @call &xorshift_left
+@call &debug_xorshift_register
+out '\n'
 @endfn
 
 #####################################
@@ -317,8 +336,8 @@ done:
 
 add shiftby 24 size
 @cpy &xorshift_state_last read1_ptr
-add &xorshift_state_last shiftby read2_ptr
 @cpy &xorshift_state_last write_ptr
+add &xorshift_state_last shiftby read2_ptr
 
 loop:
 eq read1_ptr:*0 read2_ptr:*0 xnor_output
