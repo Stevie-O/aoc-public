@@ -1,5 +1,5 @@
 jf 0 &start
-@raw dle_mode:0 exec_mode:2 mode1_count: 10
+@raw dle_mode:0 exec_mode:0 mode1_count: 10 puzzle_iterations: 2000
 start:
 add exec_mode &routine_table monkey_handler
 rbo &auto__end
@@ -10,11 +10,11 @@ rbo 388962
 # EXECUTION OPTIONS BLOCK - Memory addresses 3-4
 # [3]: Intcode Debug Mode
 # [4]: Execution Mode
-#		0 = Solve puzzle
+#		0 = Solve puzzle normally
 #		1 = Generate MODE1_COUNT successive secret umbers and print them out
 #		2 = Generate MODE1_COUNT successive prices and print them out
 # [5] MODE1_COUNT for mode 1 (default 10)
-#
+# [6] PUZZLE_ITERATIONS (default 2000
 
 ######################
 #
@@ -68,17 +68,15 @@ generate_prices:
 @jmp &generate_secrets_core
 
 
-@fn 0 generate_secrets_core(modulus) local(counter) global(print_decimal, MODE1_COUNT, xorshift_step, bits_to_int_mod, xorshift_state)
+@fn 0 generate_secrets_core(modulus) local(counter) global(print_decimal, MODE1_COUNT, xorshift_step, get_current_val_core)
 
 @cpy MODE1_COUNT counter
 @jmp &print_first
 loop:
 @call &xorshift_step
 print_first:
-@cpy &xorshift_state ~1
-@cpy 24 ~2
-@cpy modulus ~3
-@call &bits_to_int_mod
+@cpy modulus ~1
+@call &get_current_val_core
 @call &print_decimal
 out '\n'
 add -1 counter counter
@@ -117,12 +115,27 @@ out '\n'
 ######################
 #
 
-@fn 0 process_monkey() global(int_to_bits, xorshift_state, memset)
+@fn 0 process_monkey() local(itercount, price_head, price_tail, price_count, prev_price, new_price) global(get_current_value, get_current_price, PUZZLE_ITERATIONS, xorshift_step, price_buffer, part1_answer, part2_answer, dle_output)
 
-@cpy &xorshift_state ~1
-@cpy 0 ~2
-@cpy 24 ~3
-@call &memset
+@cpy 0 part2_answer
+@cpy 0 price_head
+@cpy 0 price_tail
+@cpy 0 price_count
+lt price_buffer dummy:0 dummy
+
+@call &get_current_price
+mul ~1 -1 prev_price
+@cpy PUZZLE_ITERATIONS itercount
+loop:
+@call &xorshift_step
+@call &get_current_price
+@cpy ~1 new_price
+
+add itercount -1 itercount
+jt itercount &loop
+
+@call &get_current_value
+add part1_answer ~1 part1_answer
 
 @endfn
 
@@ -423,6 +436,28 @@ jt size &loop
 #@endfn
 
 #####################################
+#
+# get_current_price() -> price
+
+get_current_price:
+
+@cpy 10 ~1
+jt ~1 &get_current_val_core
+
+get_current_value:
+
+@cpy 16777216 ~1
+jt ~1 &get_current_val_core
+
+@fn 1 get_current_val_core(modulus) global(bits_to_int_mod, xorshift_state)
+@cpy &xorshift_state ~1
+@cpy 24 ~2
+@cpy modulus ~3
+@call &bits_to_int_mod
+@cpy ~1 return0
+@endfn
+
+#####################################
 # bits_to_int_mod(buf_ptr, length, mod) -> num
 #
 # Converts a bit string to an integer, modulo
@@ -462,7 +497,8 @@ done:
 
 @fn 0 print_message(str_ptr) local(str_len)
 
-@cpy str_ptr str_len
+@cpy str_ptr read_len_ptr
+@cpy read_len_ptr:*0 str_len
 jf str_len &done
 add str_ptr 1 read_ptr
 
@@ -519,7 +555,7 @@ input_parse_error:
 @str str_part:"Part "
 @str str_answer:" answer: "
 
-@raw monkey_count: 0 part1_answer: 0 part2_answer: 0
+@raw monkey_count: 0 part1_answer: 0 part2_answer: 0 price_buffer: 0 0 0 0
 @raw xorshift_state:  0 0 0 0  0 0 0 0  0 0 0 0  0 0 0 0  0 0 0 0  0 0 0 xorshift_state_last: 0
 @raw &dle_mode &dle_output &monkey_count &pattern_table &debug_xorshift_register
 
