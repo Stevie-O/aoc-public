@@ -57,6 +57,7 @@ sub compile {
   my @lines = map { [ $linenum++, $_ ] } split /\n/, $asm;
 
   my %label_addr;
+  my %label_defline;
   my %label_mode;
   my %label_uses;
   my %label_linerefs;
@@ -100,6 +101,7 @@ sub compile {
       die "function label $fnname is already used elsewhere" if exists $label_addr{$fnname} || exists $label_mode{$fnname};
 
       $label_addr{$fnname} = @compiled;
+	  $label_defline{$fnname} = $.;
 
       my @args    =                       map { lc } split(/\,\s*/, $arglist   );      die "invalid function $fnname arglist"    if grep {!/^(?!\d)\w+$/} @args;
       my @locals  = defined $locallist  ? map { lc } split(/\,\s*/, $locallist ) : (); die "invalid function $fnname locallist"  if grep {!/^(?!\d)\w+$/} @locals;
@@ -126,6 +128,7 @@ sub compile {
         $label = $label_prefix.$label;
         die "duplicate label $label during function declaration" if exists $label_addr{$label} || exists $label_mode{$label};
         $label_addr{$label} = $addr;
+		$label_defline{$label} = $.;
         $label_mode{$label} = $mode;
       };
 
@@ -265,6 +268,8 @@ sub compile {
         $label = "$label_prefix$label";
         die "duplicate label $label" if exists $label_addr{$label};
         $label_addr{$label} = @compiled + $i;
+		$label_defline{$label} = $.;
+
       }
       if ($in_vals[$i] !~ /\S/) {
         shift @in_vals;
@@ -346,7 +351,7 @@ sub compile {
     }
   }
   for my $label (keys %label_addr) {
-    push @issues, "label $label defined but never referenced" unless exists $label_uses{$label} || $label =~ /^auto__/;
+    push @issues, "label $label defined (line $label_defline{$label}) but never referenced" unless exists $label_uses{$label} || $label =~ /^auto__/;
   }
 
   if (@issues) {
