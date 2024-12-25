@@ -295,6 +295,7 @@ jf count &done
 @cpy ptr write_ptr
 loop:
 @cpy val write_ptr:*0
+add write_ptr 1 write_ptr
 add count -1 count
 jt count &loop
 
