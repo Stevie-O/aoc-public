@@ -213,7 +213,7 @@ readonly struct IntcodeInput
 	}
 }
 
-struct IntcodeCpu
+class IntcodeCpu
 {
 	const int OP_ADD = 1;
 	const int OP_MULT = 2;
@@ -227,33 +227,39 @@ struct IntcodeCpu
 
 	const int OP_HALT = 99;
 
-	public readonly ImmutableArray<memval_t> Memory;
-	//public readonly ImmutableQueue<memval_t> Input;
-	public readonly IntcodeInput Input;
-	public readonly Action<memval_t> Output;
-	public readonly int Toc;
-	public readonly int Pc;
+	public IntcodeCpu Clone()
+	{
+		return new IntcodeCpu((memval_t[])(Memory.Clone()) ,Input, Output, Pc, Toc);
+	}
+
+	public memval_t[] Memory { get; private set; }
+	public IntcodeInput Input { get; private set; }
+	public Action<memval_t> Output { get; private set; }
+	public int Toc { get; private set; }
+	public int Pc { get; private set; }
 	public bool IsHalted => Pc < 0;
 
-	readonly ExecutionTrace _trace;
+	ExecutionTrace _trace;
 
-	public IntcodeCpu(ImmutableArray<memval_t> memory, IntcodeInput input, Action<memval_t> output, int pc, int toc) : this(memory, input, output, pc, toc, null) { }
+	public IntcodeCpu(memval_t[] memory, IntcodeInput input, Action<memval_t> output, int pc, int toc) : this(memory, input, output, pc, toc, null) { }
 
 	public IntcodeCpu Patch(params (int offset, memval_t value)[] patches)
 	{
 		var mem = Memory;
 		foreach (var patch in patches)
 		{
-			mem = mem.SetItem(patch.offset, patch.value);
+			mem[patch.offset] = patch.value;
 		}
-		return new IntcodeCpu(mem, Input, Output, Pc, Toc, _trace);
+		return this;
 	}
 
 	//public IntcodeCpu WithInput(params int[] input) => WithInput(ImmutableQueue.CreateRange(input));
 
 	public IntcodeCpu WithIO(IntcodeInput input, Action<memval_t> output)
 	{
-		return new IntcodeCpu(Memory, input, output, Pc, Toc, _trace);
+		this.Input = input;
+		this.Output = output;
+		return this;
 	}
 
 	public object ToDump()
@@ -288,7 +294,7 @@ struct IntcodeCpu
 		return Util.RawHtml(sb.ToString());
 	}
 
-	IntcodeCpu(ImmutableArray<memval_t> memory, IntcodeInput input, Action<memval_t> output, int pc, int toc, ExecutionTrace trace)
+	IntcodeCpu(memval_t[] memory, IntcodeInput input, Action<memval_t> output, int pc, int toc, ExecutionTrace trace)
 	{
 		Memory = memory;
 		Input = input;
@@ -301,8 +307,9 @@ struct IntcodeCpu
 
 	IntcodeCpu HaltOp(ExecutionTrace trace, AddressingModeData directMask)
 	{
-		var newPc = Pc + 1;
-		return new IntcodeCpu(Memory, Input, Output, (-1 - Pc), Toc, trace);
+		this.Pc = -1 - Pc;
+		this._trace = trace;
+		return this;
 	}
 
 	IntcodeCpu SetTocOp(ExecutionTrace trace, AddressingModeData directMask)
@@ -316,7 +323,10 @@ struct IntcodeCpu
 
 		LogExecutionMessage($"New TOC = {newToc}");
 
-		return new IntcodeCpu(Memory, Input, Output, pc, newToc, trace);
+		this.Pc = pc;
+		this.Toc = newToc;
+		this._trace = trace;
+		return this;
 	}
 
 
@@ -405,14 +415,7 @@ struct IntcodeCpu
 		}
 	}
 
-	IntcodeCpu WriteMemory(int newPc, ImmutableArray<memval_t> newMemory, ExecutionTrace trace)
-	{
-		return new IntcodeCpu(newMemory, Input, Output, newPc, Toc, trace);
-	}
-
-
 	IntcodeCpu WriteMemory(int newPc, int dest, memval_t value, ExecutionTrace trace = null)
-	//=> WriteMemory(newPc, Memory.SetItem((int)dest, value), trace);
 	{
 		LogExecutionMessage(string.Format("Storing {0} at address {1}", value, DescribeAddress(dest, Toc)));
 		if (dest < 0) throw new Exception("attempt to write to negative memory address");
@@ -426,24 +429,25 @@ struct IntcodeCpu
 		if (dest >= Memory.Length)
 		{
 			// resize memory
-			var moreMem = Memory.ToBuilder();
-			moreMem.AddRange(new memval_t[1024 + dest]);
-			Console.WriteLine("resizing from {0} to {1}", Memory.Length, moreMem.Count);
-			mem = moreMem.ToImmutable();
+			var moreMem = new memval_t[dest + 1024];
+			Array.Copy(Memory, moreMem, mem.Length);
+			Console.WriteLine("resizing from {0} to {1}", Memory.Length, moreMem.Length);
+			Memory = mem = moreMem;
 		}
-		return WriteMemory(newPc, mem.SetItem(dest, value), trace);
-	}
-
-	IntcodeCpu ConsumeInput(int newPc, ImmutableArray<memval_t> newMemory, IntcodeInput newInput, ExecutionTrace trace)
-	{
-		return new IntcodeCpu(newMemory, newInput, Output, newPc, Toc, trace);
+		
+		mem[dest] = value;
+		this.Pc = newPc;
+		this._trace = trace;
+		return this;
 	}
 
 	IntcodeCpu ConsumeInput(int newPc, int dest, ExecutionTrace trace = null)
 	{
-		var newInput = Input.Dequeue(out var value);
-		var newMemory = Memory.SetItem((int)dest, value);
-		return new IntcodeCpu(newMemory, newInput, Output, newPc, Toc, trace);
+		Input = Input.Dequeue(out var value);
+		Memory[dest] = value;
+		Pc = newPc;
+		this._trace = trace;
+		return this;
 	}
 
 	// instruction arguments are: (&in1|in1), (&in2|in2), &dest
@@ -491,14 +495,9 @@ struct IntcodeCpu
 		//		_last_output = a;
 		Output(a);
 
-		return new IntcodeCpu(
-				Memory,
-				Input,
-				Output,
-				pc,
-				Toc,
-				trace
-				);
+		Pc = pc;
+		_trace = trace;
+		return this;
 	}
 
 	// instruction arguments are: (@test_value, @newpc)
@@ -518,7 +517,9 @@ struct IntcodeCpu
 			pc = (int)newPc;
 		}
 
-		return new IntcodeCpu(Memory, Input, Output, pc, Toc, trace);
+		Pc = pc;
+		_trace = trace;
+		return this;
 	}
 
 	// instruction arguments are: (@arg1, @arg2, @dest)
@@ -535,8 +536,7 @@ struct IntcodeCpu
 
 
 		trace.SetArguments(a_ptr, b_ptr, dest_ptr);
-
-
+		
 		var value = cmp(a, b) ? 1 : 0;
 		return WriteMemory(pc, dest_ptr, value, trace);
 	}
@@ -618,10 +618,11 @@ IntcodeCpu ParseInput(TextReader tr)
 		var memory_text = tr.ReadToEnd();
 
 		//var memory = ImmutableArray.CreateRange(memory_text.Split(',').Select(n => memval_t.Parse(n)));
-		var builder = ImmutableArray.CreateBuilder<memval_t>();
+		var builder = new List<memval_t>();
 		builder.AddRange(memory_text.Split(',').Select(n => memval_t.Parse(n)));
-		builder.AddRange(new memval_t[1024]);
-		var memory = builder.ToImmutable();
+		builder.EnsureCapacity(builder.Count + 1024);
+		for (int i=0; i<1024; i++) builder.Add(default(memval_t));
+		var memory = builder.ToArray();
 		
 
 		return new IntcodeCpu(memory, IntcodeInput.Empty, null, 0, 0);

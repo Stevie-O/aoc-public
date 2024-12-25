@@ -1,3 +1,6 @@
 day*.txt
 
 intcode/intcode-execlog.txt
+*.map
+*.intcode
+
