@@ -146,9 +146,13 @@ static void LogExecutionMessage(string message)
 	if (Last1000Instructions.Count > MaxTraceLog) Last1000Instructions.Dequeue();
 }
 
+bool dle_received = false;
+const byte DLE = 16;
 void PrintOutput(memval_t value)
 {
+	if (dle_received) { dle_received = false; value.Dump("Dumped value"); return; }
 	if (value == '\n') Console.WriteLine();
+	else if (value == DLE) { dle_received = true; }
 	else if (value < 0x20 || value >= 0x7F) value.Dump("Dumped value");
 	else Console.Write((char)value);
 }
