@@ -1,0 +1,456 @@
+jf 0 &start
+@raw dle_mode:0 exec_mode:1 mode1_count: 10
+start:
+add exec_mode &routine_table monkey_handler
+rbo &auto__end
+rbo 388962
+
+##########################
+#
+# EXECUTION OPTIONS BLOCK - Memory addresses 3-4
+# [3]: Intcode Debug Mode
+# [4]: Execution Mode
+#		0 = Solve puzzle
+#		1 = Generate MODE1_COUNT successive secret umbers and print them out
+# [5] MODE1_COUNT for mode 1 (default 10)
+#
+
+######################
+#
+#   Read and process puzzle input
+#
+
+read_next_number:
+@call &read_integer
+jf ~1 blank_action:&read_next_number
+@cpy &end_of_input blank_action
+
+# okay, ~1 is the secret number seed.
+# fill the xorshift register with this value.
+@call &init_xorshift
+
+@call monkey_handler:*0
+@jmp &read_next_number
+
+end_of_input:
+jt exec_mode &halt_program
+
+@cpy '1' ~1
+@cpy part1_answer ~2
+@call &print_part_n_answer
+
+@cpy '2' ~1
+@cpy part2_answer ~2
+@call &print_part_n_answer
+
+halt_program:
+hlt
+
+@raw routine_table: &process_monkey &generate_secrets
+
+######################
+#
+# generate_secrets: print the next MODE1_COUNT (default 10) secret values and exit
+
+@fn 0 generate_secrets() local(counter) global(print_decimal, MODE1_COUNT, xorshift_step, bits_to_int, xorshift_state)
+
+@cpy MODE1_COUNT counter
+loop:
+@call &xorshift_step
+@cpy &xorshift_state ~1
+@cpy 24 ~2
+@call &bits_to_int
+@call &print_decimal
+out '\n'
+add -1 counter counter
+jt counter &loop
+out '\n'
+@endfn
+
+######################
+#
+# print_part_n_answer: prints answers.
+
+@fn 0 print_part_n_answer(part_digit, number) global(str_part, str_answer, print_decimal, print_message)
+@cpy &str_part ~1
+@call &print_message
+out part_digit
+@cpy &str_answer ~1
+@call &print_message
+@cpy number ~1
+@call &print_decimal
+out '\n'
+out '\n'
+@endfn
+
+@fn 0 init_xorshift(secret) global(int_to_bits, xorshift_state, memset)
+@cpy &xorshift_state ~1
+@cpy 0 ~2
+@cpy 24 ~3
+@call &memset
+
+@cpy &xorshift_state ~1
+@cpy secret ~2
+@call &int_to_bits
+@endfn
+
+
+######################
+#
+
+@fn 0 process_monkey() global(int_to_bits, xorshift_state, memset)
+
+@cpy &xorshift_state ~1
+@cpy 0 ~2
+@cpy 24 ~3
+@call &memset
+
+@endfn
+
+#####################################
+#
+# read_integer()
+#
+# reads a single integer on input, terminated by a newline.
+
+@fn 1 read_integer() local(accum, numcount, digcount, intmp) global(overflow_detected, internal_error, input_parse_error)
+
+@cpy 0 numcount
+
+#next_number:
+@cpy 0 accum
+@cpy 0 digcount
+seek_digit: in intmp
+@jeq intmp '\r' &seek_digit
+@jeq intmp '\n' &eol
+@jlt intmp '0' &nondigit
+@jle intmp '9' &process_digit
+nondigit:
+jt digcount &input_parse_error
+# NUL
+jf intmp &eof_detected
+# ctrl-Z
+@jeq intmp 26 &eof_detected
+# ctrl-D
+@jeq intmp 4 &eof_detected
+# EOF from getc()
+@jlt intmp 0 &eof_detected
+@jmp &input_parse_error
+
+@jmp &input_parse_error
+
+eol:
+eof_detected:
+@jmp &finis
+
+process_digit:
+@cpy accum accum_overflowcheck
+add 1 digcount digcount
+add -'0' intmp intmp
+mul 10 accum accum
+add accum intmp accum
+
+@jle accum accum_overflowcheck:0 &overflow_detected
+@jmp &seek_digit
+
+finis:
+
+@cpy accum return0
+
+@endfn
+
+@fn 0 dle_output(n)
+
+out 16
+out n
+
+@endfn
+
+
+#####################################
+#
+# print_decimal(n)
+#
+# outputs 'n' in decimal ASCII
+
+@fn 0 print_decimal(n) global(print_next_decimal_digit, dle_mode)
+jf n &print_zero
+############## NEGATIVE NUMBER SUPPORT
+# if you don't need negatives, comment out these instrucitons
+lt n 0 ~2
+jf ~2 &positive
+out '-'
+mul n -1 n
+############## END NEGATIVE NUMBER SUPPORT
+positive:
+@cpy n ~1
+@cpy 1 ~2
+@call &print_next_decimal_digit
+@jmp &exitfun
+print_zero: out '0'
+exitfun:
+@endfn
+
+@fn 1 print_next_decimal_digit(n, mask) local(dig, negmask)
+
+# PRECONDITIONS: n >= mask, mask is a power of 10
+# POSTCONDITIONS: upon return, ~1 has all powers of 10 greater than mask removed
+
+@cpy n ~1
+@jlt n mask &exitfn
+
+mul mask 10 ~2
+@call &print_next_decimal_digit
+@cpy ~1 n
+
+mul mask -1 negmask
+@cpy '0' dig
+compute_digit:
+@jlt n mask &done_compute_digit
+add dig 1 dig
+add n negmask n
+@jmp &compute_digit
+done_compute_digit:
+
+out dig
+
+exitfn:
+@cpy n return0
+@endfn
+
+#####################################
+#
+# memset(ptr, val, count)
+
+@fn 0 memset(ptr, val, count)
+
+jf count &done
+@cpy ptr write_ptr
+loop:
+@cpy val write_ptr:*0
+add count -1 count
+jt count &loop
+
+done:
+@endfn
+
+#####################################
+# int_to_bits(buf_ptr, num) -> count_of_bits_written
+#
+# Convert an integer value into a bit string
+#
+# writes the bits that make up @num out to @buf_ptr, LSB-first (TODO: or should I do MSB-first?)
+# upon return, ~1 is the number of bits written (this will be 0 if num <= 0)
+
+# lightweight function with tail recursion
+int_to_bits:
+
+@cpy 1 ~3
+@cpy 24 ~4
+@jmp &int_to_bits_core
+
+#####################################
+# int_to_bits_core(buf_ptr, num, pow2, buf_size) -> (count_of_bits_written, num_masked)
+#
+# Core to_bits implementation
+#
+# upon return, ~1 is the number of bits written (this will be 0 if num < pow2) and ~2 is num with all bits greater than or equal to pow2 masked out
+
+# GOTCHA: return parameters and incoming arguments share stack space, so return0 and return1 are aliased with buf_ptr and num, respectively
+# because of that, the parameter order was changed from "num, buf_ptr" to "buf_ptr, num" to avoid some juggling
+
+@fn 1 int_to_bits_core(buf_ptr, num, pow2, buf_size) local(bits_written) global(overflow_detected)
+
+@cpy 0 bits_written
+@jlt num pow2 &done
+
+# we need to write out at least one bit. if there's no room, report an error
+jf buf_size &overflow_detected
+
+# if there are any bits *higher* than pow2 set in num, we need to remove them 
+@jle num pow2 &no_higher_bits
+
+# remove higher bits
+add 1 buf_ptr ~1
+@cpy num ~2
+mul pow2 2 ~3
+add buf_size -1 ~4
+@call &int_to_bits_core
+add bits_written ~1 bits_written
+@cpy ~2 num
+
+no_higher_bits:
+
+@cpy buf_ptr write_ptr
+lt num pow2 inverted_bit
+eq inverted_bit:0 0 write_ptr:*0
+add bits_written 1 bits_written
+jt inverted_bit &done
+
+mul pow2 -1 subtract_mask
+add num subtract_mask:0 num
+
+done:
+
+@cpy bits_written return0
+# num and return1 are aliases
+#@cpy num return1 
+@endfn
+
+#####################################
+# xorshift_step
+@fn 0 xorshift_step() global(xorshift_left, xorshift_right)
+@cpy 6 ~1
+@call &xorshift_left
+@cpy 5 ~1
+@call &xorshift_right
+@cpy 11 ~1
+@call &xorshift_left
+@endfn
+
+#####################################
+# xorshift_left(-shiftby)
+# note that shiftby must be NEGATIVE
+# buffer ^= (buffer << shiftby)
+
+@fn 0 xorshift_left(shiftby) local(size) global(xorshift_state, xorshift_state_last)
+
+add shiftby 24 size
+@cpy &xorshift_state_last read1_ptr
+add &xorshift_state_last shiftby read2_ptr
+@cpy &xorshift_state_last write_ptr
+
+loop:
+eq read1_ptr:*0 read2_ptr:*0 xnor_output
+eq xnor_output:0 0 write_ptr:*0
+add -1 read1_ptr read1_ptr
+add -1 read2_ptr read2_ptr
+add -1 write_ptr write_ptr
+add -1 size size
+jt size &loop 
+
+@endfn
+
+#####################################
+# xorshift_right(-shiftby)
+# note that shiftby must be NEGATIVE
+# buffer ^= (buffer >> shiftby)
+
+@fn 0 xorshift_right(shiftby) local(size) global(xorshift_state, xorshift_state_last)
+
+add shiftby 24 size
+@cpy &xorshift_state read1_ptr
+mul shiftby -1 shiftby
+add &xorshift_state shiftby read2_ptr
+@cpy &xorshift_state write_ptr
+
+loop:
+eq read1_ptr:*0 read2_ptr:*0 xnor_output
+eq xnor_output:0 0 write_ptr:*0
+add 1 read1_ptr read1_ptr
+add 1 read2_ptr read2_ptr
+add 1 write_ptr write_ptr
+add -1 size size
+jt size &loop 
+
+@endfn
+
+
+
+#####################################
+# bits_to_int(buf_ptr, length) -> num
+#
+# Converts a bit string to an integer
+#
+# writes the bits that make up @num out to @buf_ptr, LSB-first (TODO: or should I do MSB-first?)
+# upon return, ~1 is the number of bits written (this will be 0 if num <= 0)
+
+@fn 1 bits_to_int(buf_ptr, buf_len) local(bitval)
+
+@cpy buf_ptr read_ptr
+@cpy 0 return0
+@cpy 1 bitval
+jf buf_len &done
+next_bit:
+
+mul read_ptr:*0 bitval read_bitval
+add return0 read_bitval:0 return0
+mul bitval 2 bitval
+
+add read_ptr 1 read_ptr
+add buf_len -1 buf_len
+jt buf_len &next_bit
+done:
+
+@endfn
+
+#####################################
+#
+# Print a message.
+
+@fn 0 print_message(str_ptr) local(str_len)
+
+@cpy str_ptr str_len
+jf str_len &done
+add str_ptr 1 read_ptr
+
+message_print_loop:
+add read_ptr:*0 0 ~1
+add read_ptr 1 read_ptr
+out ~1
+add str_len -1 str_len
+jt str_len &message_print_loop
+
+done:
+@endfn
+
+
+
+#####################################
+#
+# error messages, etc.
+
+@raw errmsg_ptr:0 strlen:0 tmpchar:0
+die_with_message:
+# @str puts a length prefix
+@cpy errmsg_ptr read_strlen
+add read_strlen:*0 0 strlen
+add 1 errmsg_ptr errmsg_reader
+message_print_loop:
+add errmsg_reader:*0 0 tmpchar
+add errmsg_reader 1 errmsg_reader
+out tmpchar
+add strlen -1 strlen
+jt strlen &message_print_loop
+hlt
+
+overflow_detected:
+@cpy &str_overflow_detected errmsg_ptr
+@jmp &die_with_message
+
+#unsolvable_input:
+#@cpy &str_unsolvable_input errmsg_ptr
+#@jmp &die_with_message
+
+#internal_error:
+#@cpy &str_internal_error errmsg_ptr
+#@jmp &die_with_message
+
+input_parse_error:
+@cpy &str_input_parse_error errmsg_ptr
+@jmp &die_with_message
+
+@str str_overflow_detected:"Integer overflow detected\n"
+#@str str_unsolvable_input:"Unsolvable input detected\n"
+#@str str_internal_error:"Internal error\n"
+@str str_input_parse_error:"Input parse error\n"
+@str str_part:"Part "
+@str str_answer:" answer: "
+
+@raw monkey_count: 0 part1_answer: 0 part2_answer: 0
+@raw xorshift_state:  0 0 0 0  0 0 0 0  0 0 0 0  0 0 0 0  0 0 0 0  0 0 0 xorshift_state_last: 0
+@raw &dle_mode &dle_output &monkey_count &pattern_table
+
+@raw pattern_table: 0
+
+
