@@ -1,5 +1,5 @@
 jf 0 &start
-@raw dle_mode:0 exec_mode:1 mode1_count: 10
+@raw dle_mode:0 exec_mode:2 mode1_count: 10
 start:
 add exec_mode &routine_table monkey_handler
 rbo &auto__end
@@ -12,6 +12,7 @@ rbo 388962
 # [4]: Execution Mode
 #		0 = Solve puzzle
 #		1 = Generate MODE1_COUNT successive secret umbers and print them out
+#		2 = Generate MODE1_COUNT successive prices and print them out
 # [5] MODE1_COUNT for mode 1 (default 10)
 #
 
@@ -46,20 +47,38 @@ jt exec_mode &halt_program
 halt_program:
 hlt
 
-@raw routine_table: &process_monkey &generate_secrets
+@raw routine_table: &process_monkey &generate_secrets &generate_prices
 
 ######################
 #
 # generate_secrets: print the next MODE1_COUNT (default 10) secret values and exit
 
-@fn 0 generate_secrets() local(counter) global(print_decimal, MODE1_COUNT, xorshift_step, bits_to_int, xorshift_state)
+generate_secrets:
+
+@cpy 16777216 ~1
+@jmp &generate_secrets_core
+
+######################
+#
+# generate_prices: print the next MODE1_COUNT (default 10) prices and exit
+
+generate_prices:
+
+@cpy 10 ~1
+@jmp &generate_secrets_core
+
+
+@fn 0 generate_secrets_core(modulus) local(counter) global(print_decimal, MODE1_COUNT, xorshift_step, bits_to_int_mod, xorshift_state)
 
 @cpy MODE1_COUNT counter
+@jmp &print_first
 loop:
 @call &xorshift_step
+print_first:
 @cpy &xorshift_state ~1
 @cpy 24 ~2
-@call &bits_to_int
+@cpy modulus ~3
+@call &bits_to_int_mod
 @call &print_decimal
 out '\n'
 add -1 counter counter
@@ -384,8 +403,34 @@ jt size &loop
 # writes the bits that make up @num out to @buf_ptr, LSB-first (TODO: or should I do MSB-first?)
 # upon return, ~1 is the number of bits written (this will be 0 if num <= 0)
 
-@fn 1 bits_to_int(buf_ptr, buf_len) local(bitval)
+#@fn 1 bits_to_int(buf_ptr, buf_len) local(bitval)
+#
+#@cpy buf_ptr read_ptr
+#@cpy 0 return0
+#@cpy 1 bitval
+#jf buf_len &done
+#next_bit:
+#
+#mul read_ptr:*0 bitval read_bitval
+#add return0 read_bitval:0 return0
+#mul bitval 2 bitval
+#
+#add read_ptr 1 read_ptr
+#add buf_len -1 buf_len
+#jt buf_len &next_bit
+#done:
+#
+#@endfn
 
+#####################################
+# bits_to_int_mod(buf_ptr, length, mod) -> num
+#
+# Converts a bit string to an integer, modulo
+
+@fn 1 bits_to_int_mod(buf_ptr, buf_len, mod) local(bitval, red, negmod)
+
+mul mod -1 negmod
+add mod -1 mod
 @cpy buf_ptr read_ptr
 @cpy 0 return0
 @cpy 1 bitval
@@ -394,7 +439,15 @@ next_bit:
 
 mul read_ptr:*0 bitval read_bitval
 add return0 read_bitval:0 return0
+
 mul bitval 2 bitval
+lt mod bitval red
+mul red negmod red
+add bitval red bitval
+
+lt mod return0 red
+mul red negmod red
+add return0 red return0
 
 add read_ptr 1 read_ptr
 add buf_len -1 buf_len
