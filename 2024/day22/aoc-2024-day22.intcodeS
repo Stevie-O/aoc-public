@@ -314,16 +314,16 @@ done:
 # xorshift_step
 @fn 0 xorshift_step() global(xorshift_left, xorshift_right, debug_xorshift_register)
 
-@call &debug_xorshift_register
+#@call &debug_xorshift_register
 @cpy -6 ~1
 @call &xorshift_left
-@call &debug_xorshift_register
-@cpy 5 ~1
+#@call &debug_xorshift_register
+@cpy -5 ~1
 @call &xorshift_right
-@call &debug_xorshift_register
+#@call &debug_xorshift_register
 @cpy -11 ~1
 @call &xorshift_left
-@call &debug_xorshift_register
+#@call &debug_xorshift_register
 out '\n'
 @endfn
 
@@ -468,7 +468,7 @@ input_parse_error:
 
 @raw monkey_count: 0 part1_answer: 0 part2_answer: 0
 @raw xorshift_state:  0 0 0 0  0 0 0 0  0 0 0 0  0 0 0 0  0 0 0 0  0 0 0 xorshift_state_last: 0
-@raw &dle_mode &dle_output &monkey_count &pattern_table
+@raw &dle_mode &dle_output &monkey_count &pattern_table &debug_xorshift_register
 
 @raw pattern_table: 0
 
