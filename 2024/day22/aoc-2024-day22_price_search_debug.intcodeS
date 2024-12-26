@@ -57,8 +57,8 @@ out '\n'
 
 @fn 1 get_pattern_id(price_head) local(pattern_id, counter) global(price_buffer, price_buffer_end, dle_output)
 
-@cpy 130 ~1
-@call &dle_output
+#@cpy 130 ~1
+#@call &dle_output
 
 @cpy 0 pattern_id
 @cpy 4 counter
@@ -67,11 +67,11 @@ loop:
 mul pattern_id 19 pattern_id
 #######################
 # no debugging:
-#add price_head_ptr:*0 pattern_id pattern_id
+add price_head_ptr:*0 pattern_id pattern_id
 # debugging on:
-add price_head_ptr:*0 0 ~1
-@call &dle_output
-add pattern_id ~1 pattern_id
+#add price_head_ptr:*0 0 ~1
+#@call &dle_output
+#add pattern_id ~1 pattern_id
 ################################
 add 9 pattern_id pattern_id
 add price_head_ptr 1 price_head_ptr
@@ -81,8 +81,8 @@ add wrap_count price_head_ptr price_head_ptr
 add counter -1 counter
 jt counter &loop
 
-@cpy pattern_id ~1
-@call &dle_output
+#@cpy pattern_id ~1
+#@call &dle_output
 
 @cpy pattern_id return0
 @endfn
@@ -102,7 +102,6 @@ add monkey_count 1 monkey_count
 #@call &get_current_value
 #@call &dle_output
 
-@cpy 0 part2_answer
 @cpy &price_buffer price_head
 @cpy &price_buffer price_tail
 @cpy 0 price_count
@@ -141,9 +140,6 @@ add price_count 1 price_count
 @cpy ~1 pattern_id
 #@call &dle_output
 mul pattern_id 2 pattern_id
-@jlt pattern_id 388962 &boundscheck_ok
-hlt
-boundscheck_ok:
 add pattern_id &pattern_table monkey_id_ptr_1
 @cpy monkey_id_ptr_1 monkey_id_ptr_2
 add 1 monkey_id_ptr_1 pattern_value_ptr_1

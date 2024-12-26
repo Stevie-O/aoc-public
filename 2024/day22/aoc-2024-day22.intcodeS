@@ -166,8 +166,6 @@ add monkey_count 1 monkey_count
 #@call &get_current_value
 #@call &dle_output
 
-
-@cpy 0 part2_answer
 @cpy &price_buffer price_head
 @cpy &price_buffer price_tail
 @cpy 0 price_count
