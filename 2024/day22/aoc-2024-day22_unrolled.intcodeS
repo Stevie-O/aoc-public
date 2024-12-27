@@ -24,7 +24,6 @@ rbo 260642
 # The Intcode CPU is surprisingly powerful in some ways, but remarkably weak in others.
 # One of the worst is the lack of general-use pointer registers, which means operations on dynamic memory addresses
 # necessarily involves a *lot* of self-modifying code.
-#
 
 
 ##########################
@@ -79,7 +78,7 @@ hlt
 
 generate_secrets:
 
-@cpy 16777216 ~1
+@cpy &get_current_value ~1
 @jmp &generate_secrets_core
 
 ######################
@@ -88,11 +87,11 @@ generate_secrets:
 
 generate_prices:
 
-@cpy 10 ~1
+@cpy &get_current_price ~1
 @jmp &generate_secrets_core
 
 
-@fn 0 generate_secrets_core(modulus) local(counter, skipcount) global(print_decimal, GEN_COUNT, GEN_SKIP, GEN_LABEL, xorshift_step, get_current_val_core)
+@fn 0 generate_secrets_core(extract_func) local(counter, skipcount) global(print_decimal, GEN_COUNT, GEN_SKIP, GEN_LABEL, xorshift_step, get_current_val_core)
 
 @cpy 0 counter
 @cpy GEN_SKIP skipcount
@@ -110,8 +109,7 @@ out ':'
 out 32
 no_print_label:
 
-@cpy modulus ~1
-@call &get_current_val_core
+@call extract_func
 @call &print_decimal
 out '\n'
 
@@ -220,9 +218,6 @@ add price_count 1 price_count
 @cpy ~1 pattern_id
 #@call &dle_output
 mul pattern_id 2 pattern_id
-@jlt pattern_id 388962 &boundscheck_ok
-hlt
-boundscheck_ok:
 add pattern_id &pattern_table monkey_id_ptr_1
 @cpy monkey_id_ptr_1 monkey_id_ptr_2
 add 1 monkey_id_ptr_1 pattern_value_ptr_1
@@ -565,11 +560,6 @@ eq xs07 0 xs07
 #
 # get_current_price() -> price
 
-get_current_price:
-
-@cpy 10 ~1
-jt ~1 &get_current_val_core
-
 get_current_value:
 
 @cpy 16777216 ~1
@@ -581,6 +571,77 @@ jt ~1 &get_current_val_core
 @cpy modulus ~3
 @call &bits_to_int_mod
 @cpy ~1 return0
+@endfn
+
+#####################################
+#
+# get_current_price() -> num
+
+@fn 1 get_current_price() local(accum, tmp) global(xs00, xs01, xs02, xs03, xs04, xs05, xs06, xs07, xs08, xs09, xs10, xs11, xs12, xs13, xs14, xs15, xs16, xs17, xs18, xs19, xs20, xs21, xs22, xs23)
+
+mul xs00 1 accum
+mul xs01 2 tmp
+add accum tmp accum
+mul xs02 4 tmp
+add accum tmp accum
+mul xs03 8 tmp
+add accum tmp accum
+mul xs04 6 tmp
+add accum tmp accum
+mul xs05 2 tmp
+add accum tmp accum
+mul xs06 4 tmp
+add accum tmp accum
+mul xs07 8 tmp
+add accum tmp accum
+mul xs08 6 tmp
+add accum tmp accum
+mul xs09 2 tmp
+add accum tmp accum
+mul xs10 4 tmp
+add accum tmp accum
+mul xs11 8 tmp
+add accum tmp accum
+mul xs12 6 tmp
+add accum tmp accum
+mul xs13 2 tmp
+add accum tmp accum
+mul xs14 4 tmp
+add accum tmp accum
+mul xs15 8 tmp
+add accum tmp accum
+mul xs16 6 tmp
+add accum tmp accum
+mul xs17 2 tmp
+add accum tmp accum
+mul xs18 4 tmp
+add accum tmp accum
+mul xs19 8 tmp
+add accum tmp accum
+mul xs20 6 tmp
+add accum tmp accum
+mul xs21 2 tmp
+add accum tmp accum
+mul xs22 4 tmp
+add accum tmp accum
+mul xs23 8 tmp
+add accum tmp accum
+
+# the largest possible value that accum can be is 115
+# now, reduce modulo 10
+lt 79 accum tmp
+mul tmp -80 tmp
+add accum tmp accum
+lt 39 accum tmp
+mul tmp -40 tmp
+add accum tmp accum
+lt 19 accum tmp
+mul tmp -20 tmp
+add accum tmp accum
+lt 9 accum tmp
+mul tmp -10 tmp
+add accum tmp return0
+
 @endfn
 
 #####################################
