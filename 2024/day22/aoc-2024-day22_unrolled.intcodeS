@@ -145,33 +145,73 @@ out '\n'
 @call &int_to_bits
 @endfn
 
-@fn 1 get_pattern_id(price_head) local(pattern_id, counter) global(price_buffer, price_buffer_end, dle_output)
+@raw pattern_id_dispatch: &get_pattern0_id &get_pattern1_id &get_pattern2_id &get_pattern3_id
 
-#@cpy 130 ~1
-#@call &dle_output
+get_pattern_id:
 
-@cpy 0 pattern_id
-@cpy 4 counter
-@cpy price_head price_head_ptr
-loop:
-mul pattern_id 19 pattern_id
-#######################
-# no debugging:
-add price_head_ptr:*0 pattern_id pattern_id
-# debugging on:
-#add price_head_ptr:*0 0 ~1
-#@call &dle_output
-#add pattern_id ~1 pattern_id
-################################
-add 9 pattern_id pattern_id
-add price_head_ptr 1 price_head_ptr
-eq price_head_ptr &price_buffer_end wrap_count
-mul wrap_count:0 -4 wrap_count
-add wrap_count price_head_ptr price_head_ptr
-add counter -1 counter
-jt counter &loop
+add &pattern_id_dispatch ~1 dispatch_ptr
+@jmp dispatch_ptr:*0
+@fn 1 get_pattern0_id() global(pb0, pb1, pb2, pb3)
 
-@cpy pattern_id return0
+add pb0 9 return0
+mul return0 19 return0
+add return0 pb1 return0
+add return0 9 return0
+mul return0 19 return0
+add return0 pb2 return0
+add return0 9 return0
+mul return0 19 return0
+add return0 pb3 return0
+add return0 9 return0
+
+@endfn
+
+
+@fn 1 get_pattern1_id() global(pb1, pb2, pb3, pb0)
+
+add pb1 9 return0
+mul return0 19 return0
+add return0 pb2 return0
+add return0 9 return0
+mul return0 19 return0
+add return0 pb3 return0
+add return0 9 return0
+mul return0 19 return0
+add return0 pb0 return0
+add return0 9 return0
+
+@endfn
+
+
+@fn 1 get_pattern2_id() global(pb2, pb3, pb0, pb1)
+
+add pb2 9 return0
+mul return0 19 return0
+add return0 pb3 return0
+add return0 9 return0
+mul return0 19 return0
+add return0 pb0 return0
+add return0 9 return0
+mul return0 19 return0
+add return0 pb1 return0
+add return0 9 return0
+
+@endfn
+
+
+@fn 1 get_pattern3_id() global(pb3, pb0, pb1, pb2)
+
+add pb3 9 return0
+mul return0 19 return0
+add return0 pb0 return0
+add return0 9 return0
+mul return0 19 return0
+add return0 pb1 return0
+add return0 9 return0
+mul return0 19 return0
+add return0 pb2 return0
+add return0 9 return0
+
 @endfn
 
 
@@ -186,7 +226,7 @@ add monkey_count 1 monkey_count
 #@call &get_current_value
 #@call &dle_output
 
-@cpy &price_buffer price_head
+@cpy 0 price_head
 @cpy &price_buffer price_tail
 @cpy 0 price_count
 lt price_buffer dummy:0 dummy
@@ -237,7 +277,7 @@ no_new_winner:
 
 # advance price_head
 add price_head 1 price_head
-eq price_head &price_buffer_end wrap_tmp
+eq price_head 4 wrap_tmp
 mul wrap_tmp -4 wrap_tmp
 add wrap_tmp price_head price_head
 
@@ -562,16 +602,9 @@ eq xs07 0 xs07
 
 get_current_value:
 
-@cpy 16777216 ~1
-jt ~1 &get_current_val_core
-
-@fn 1 get_current_val_core(modulus) global(bits_to_int_mod, xorshift_state)
 @cpy &xorshift_state ~1
 @cpy 24 ~2
-@cpy modulus ~3
-@call &bits_to_int_mod
-@cpy ~1 return0
-@endfn
+@jmp &bits_to_int
 
 #####################################
 #
@@ -645,36 +678,24 @@ add accum tmp return0
 @endfn
 
 #####################################
-# bits_to_int_mod(buf_ptr, length, mod) -> num
+# bits_to_int(buf_ptr, length) -> num
 #
-# Converts a bit string to an integer, modulo
+# Converts a bit string to an integer
 
-@fn 1 bits_to_int_mod(buf_ptr, buf_len, mod) local(bitval, red, negmod)
+@fn 1 bits_to_int(buf_ptr, buf_len) local(bitval)
 
-mul mod -1 negmod
-add mod -1 mod
 @cpy buf_ptr read_ptr
 @cpy 0 return0
 @cpy 1 bitval
-jf buf_len &done
 next_bit:
 
 mul read_ptr:*0 bitval read_bitval
 add return0 read_bitval:0 return0
-
 mul bitval 2 bitval
-lt mod bitval red
-mul red negmod red
-add bitval red bitval
-
-lt mod return0 red
-mul red negmod red
-add return0 red return0
 
 add read_ptr 1 read_ptr
 add buf_len -1 buf_len
 jt buf_len &next_bit
-done:
 
 @endfn
 
@@ -723,26 +744,17 @@ overflow_detected:
 @cpy &str_overflow_detected errmsg_ptr
 @jmp &die_with_message
 
-#unsolvable_input:
-#@cpy &str_unsolvable_input errmsg_ptr
-#@jmp &die_with_message
-
-#internal_error:
-#@cpy &str_internal_error errmsg_ptr
-#@jmp &die_with_message
-
 input_parse_error:
 @cpy &str_input_parse_error errmsg_ptr
 @jmp &die_with_message
 
 @str str_overflow_detected:"Integer overflow detected\n"
-#@str str_unsolvable_input:"Unsolvable input detected\n"
-#@str str_internal_error:"Internal error\n"
 @str str_input_parse_error:"Input parse error\n"
 @str str_part:"Part "
 @str str_answer:" answer: "
 
-@raw monkey_count: 0  price_buffer: 0 0 0 0 price_buffer_end: part1_answer: 0 part2_answer: 0
+@raw monkey_count: 0
+@raw price_buffer: pb0:0 pb1:0 pb2:0 pb3:0 price_buffer_end: part1_answer: 0 part2_answer: 0
 @raw xorshift_state:  xs00:0 xs01:0 xs02:0 xs03:0  xs04:0 xs05:0 xs06:0 xs07:0  xs08:0 xs09:0 xs10:0 xs11:0 xs12:0 xs13:0 xs14:0 xs15:0  xs16:0 xs17:0 xs18:0 xs19:0 xs20:0 xs21:0 xs22:0 xs23:0
 @raw &dle_mode &dle_output &debug_xorshift_register
 

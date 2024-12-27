@@ -66,5 +66,11 @@ Okay, I unrolled the loop for price extraction and optimized the mod_10 logic, a
 
 I should be able to nock another 70M cycles off of that, however, with one last unrolling.
 
+### 2024-12-26 10:00pm
 
+I unrolled the loop for pattern extraction and now it's at:
 
+- Intcode cycles: 811_741_374
+- Execution time: 2 minutes 27 seconds.
+
+This is as good as I can reasonably hope for; time to post it to Reddit!
