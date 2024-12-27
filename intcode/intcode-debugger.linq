@@ -32,20 +32,20 @@ void Main()
 			code_file
 		));
 
-//	using var stdout_file = new StreamWriter(Path.Combine(dir, "output.txt"), false);
-//	OutputTextWriter = stdout_file;
-//	OutputLiterals = true;
+	//	using var stdout_file = new StreamWriter(Path.Combine(dir, "output.txt"), false);
+	//	OutputTextWriter = stdout_file;
+	//	OutputLiterals = true;
 
-//	cpu = cpu.Patch((4, 2), (5, 2000));
+	//	cpu = cpu.Patch((4, 2), (5, 2000));
 	//cpu = cpu.Patch( (4, 1), (6, 1995), (7, 1));
 	//	cpu = cpu.Patch( (4, 1), (6, 1995), (7, 1));
-	
+
 	var day22_input = File.ReadAllText(Path.Combine(dir, "day22.txt"));
 	//var day22_prices = File.ReadAllText(Path.Combine(dir, "day22-prices.txt"));
-	
+
 	//DebugDay22PatternMemory(cpu, day22_prices);
 	//return;
-	
+
 	cpu = cpu.WithIO(new IntcodeInput(day22_input),
 		PrintOutput
 	);
@@ -54,8 +54,9 @@ void Main()
 	{
 		//	cpu = cpu.Patch((1, 1));
 
-		if (WRITE_EXECLOG) ExecutionLogFile = new StreamWriter(
-				Path.Combine(Path.GetDirectoryName(Util.CurrentQueryPath), @"intcode-execlog.txt"), false, new UTF8Encoding(false));
+		if (WRITE_EXECLOG) ExecutionLogFile = new ExecutionLogFileWriter(new StreamWriter(
+				Path.Combine(Path.GetDirectoryName(Util.CurrentQueryPath), @"intcode-execlog.txt"), false, new UTF8Encoding(false))
+				);
 		//Console.WriteLine("PART 1");
 		RunUntilHalt(cpu);
 		/*
@@ -80,8 +81,9 @@ void DebugDay22PatternMemory(IntcodeCpu initial_cpu, string day22_prices)
 	var pricelists = day22_prices.Split(Environment.NewLine + Environment.NewLine);
 	foreach (var pricelist in pricelists)
 	{
-		if (WRITE_EXECLOG) ExecutionLogFile = new StreamWriter(
-				Path.Combine(Path.GetDirectoryName(Util.CurrentQueryPath), @"intcode-execlog.txt"), false, new UTF8Encoding(false));
+		if (WRITE_EXECLOG) ExecutionLogFile = new ExecutionLogFileWriter(new StreamWriter(
+				Path.Combine(Path.GetDirectoryName(Util.CurrentQueryPath), @"intcode-execlog.txt"), false, new UTF8Encoding(false))
+				);
 
 		var cpu = initial_cpu.Clone().WithIO(
 				new IntcodeInput(pricelist),
@@ -96,7 +98,7 @@ void DebugDay22PatternMemory(IntcodeCpu initial_cpu, string day22_prices)
 		stdout_file.WriteLine();
 		stdout_file.Flush();
 		counter++;
-		ExecutionLogFile?.Close();
+		ExecutionLogFile?.Dispose();
 		Console.WriteLine("Wrote {0} pattern tables", counter);
 	}
 }
@@ -147,18 +149,27 @@ static string DescribeAddress(int address, int rb)
 }
 
 const int MaxTraceLog = 40_000;
-static int instr_num = 0;
-static Queue<string> Last1000Instructions = new Queue<string>();
-static TextWriter ExecutionLogFile;
-static void LogExecutionMessage(string message)
+static ExecutionLogFileWriter ExecutionLogFile = null;
+class ExecutionLogFileWriter : IDisposable
 {
-	if (ExecutionLogFile == null) return;
+	int instr_num = 0;
+	Queue<string> Last1000Instructions = new Queue<string>();
+	TextWriter ExecutionLogFile;
 
-	++instr_num;
-	var full_message = "{" + instr_num + "} " + message;
-	ExecutionLogFile?.WriteLine(full_message);
-	Last1000Instructions.Enqueue(full_message);
-	if (Last1000Instructions.Count > MaxTraceLog) Last1000Instructions.Dequeue();
+	TextWriter _logFile;
+	public void Dispose() { _logFile.Dispose(); }
+	public void Flush() { _logFile.Flush(); }
+	public ExecutionLogFileWriter(TextWriter logFile) { _logFile = logFile ?? throw new ArgumentNullException(nameof(logFile)); }
+	public void WriteLine(string message) => _logFile.WriteLine(message);
+	public void WriteLine(string format, params object[] args) => _logFile.WriteLine(format, args);
+	public void LogExecutionMessage(string message)
+	{
+		++instr_num;
+		var full_message = "{" + instr_num + "} " + message;
+		ExecutionLogFile?.WriteLine(full_message);
+		Last1000Instructions.Enqueue(full_message);
+		if (Last1000Instructions.Count > MaxTraceLog) Last1000Instructions.Dequeue();
+	}
 }
 
 TextWriter OutputTextWriter = Console.Out;
@@ -302,8 +313,6 @@ class IntcodeCpu
 		return this;
 	}
 
-	//public IntcodeCpu WithInput(params int[] input) => WithInput(ImmutableQueue.CreateRange(input));
-
 	public IntcodeCpu WithIO(IntcodeInput input, Action<memval_t> output)
 	{
 		this.Input = input;
@@ -370,7 +379,7 @@ class IntcodeCpu
 		var newToc = (int)(Toc + a);
 		trace.SetArguments(newToc);
 
-		LogExecutionMessage($"New TOC = {newToc}");
+		ExecutionLogFile?.LogExecutionMessage($"New TOC = {newToc}");
 
 		this.Pc = pc;
 		this.Toc = newToc;
@@ -466,7 +475,7 @@ class IntcodeCpu
 
 	IntcodeCpu WriteMemory(int newPc, int dest, memval_t value, ExecutionTrace trace = null)
 	{
-		LogExecutionMessage(string.Format("Storing {0} at address {1}", value, DescribeAddress(dest, Toc)));
+		ExecutionLogFile?.LogExecutionMessage(string.Format("Storing {0} at address {1}", value, DescribeAddress(dest, Toc)));
 		if (dest < 0) throw new Exception("attempt to write to negative memory address");
 		if (MemoryBreakPoints.Contains(dest))
 		{
@@ -480,7 +489,7 @@ class IntcodeCpu
 			// resize memory
 			var moreMem = new memval_t[dest + 1024];
 			Array.Copy(Memory, moreMem, mem.Length);
-			Console.WriteLine("resizing from {0} to {1}", Memory.Length, moreMem.Length);
+			//Console.WriteLine("resizing from {0} to {1}", Memory.Length, moreMem.Length);
 			Memory = mem = moreMem;
 		}
 
@@ -628,7 +637,7 @@ class IntcodeCpu
 			}
 		}
 		//Console.WriteLine(sb.ToString());
-		LogExecutionMessage(sb.ToString());
+		ExecutionLogFile?.LogExecutionMessage(sb.ToString());
 	}
 
 	public IntcodeCpu ExecuteInstruction()

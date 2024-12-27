@@ -7,7 +7,7 @@ rbo 260642
 
 ##########################
 #
-# AOC 2024 Day 22 Intcode Solver -- Original Version
+# AOC 2024 Day 22 Intcode Solver -- Unrolled Version
 #
 # Input is in ASCII, output is in ASCII.
 #
@@ -19,7 +19,13 @@ rbo 260642
 # - 0x04 (Ctrl-D, ASCII EOT; Default EOF replacement character on *nix-style TTY drivers)
 # - a negative number (`EOF` constant returned by `fgetc`, `getc`, or `getchar`; see `stdio.h`)
 #
-# NOTE: Slow. 3.6 billion Intcode instruction cycles on my input.  Took 26 minutes on my machine.
+# NOTES: 
+#
+# The Intcode CPU is surprisingly powerful in some ways, but remarkably weak in others.
+# One of the worst is the lack of general-use pointer registers, which means operations on dynamic memory addresses
+# necessarily involves a *lot* of self-modifying code.
+#
+
 
 ##########################
 #
@@ -457,69 +463,76 @@ done:
 
 #####################################
 # xorshift_step
-@fn 0 xorshift_step() global(xorshift_left, xorshift_right, debug_xorshift_register)
+#
+# UNROLLED VERSION
+#
+# based on some ideas from other 2024 puzzles, I was able to implement this using 57 instructions
 
-#@call &debug_xorshift_register
-@cpy -6 ~1
-@call &xorshift_left
-#@call &debug_xorshift_register
-@cpy -5 ~1
-@call &xorshift_right
-#@call &debug_xorshift_register
-@cpy -11 ~1
-@call &xorshift_left
-#@call &debug_xorshift_register
-#out '\n'
+@fn 0 xorshift_step() global(xs00, xs01, xs02, xs03, xs04, xs05, xs06, xs07, xs08, xs09, xs10, xs11, xs12, xs13, xs14, xs15, xs16, xs17, xs18, xs19, xs20, xs21, xs22, xs23)
+
+eq xs23 xs17 xs23
+eq xs23 0 xs23
+eq xs22 xs16 xs22
+eq xs21 xs15 xs21
+eq xs20 xs14 xs20
+eq xs19 xs13 xs19
+eq xs18 xs12 xs18
+eq xs17 xs11 xs17
+eq xs16 xs10 xs16
+eq xs15 xs09 xs15
+eq xs14 xs08 xs14
+eq xs13 xs07 xs13
+eq xs12 xs06 xs12
+eq xs11 xs05 xs11
+eq xs11 0 xs11
+eq xs10 xs04 xs10
+eq xs09 xs03 xs09
+eq xs08 xs02 xs08
+eq xs07 xs01 xs07
+eq xs06 xs00 xs06
+
+eq xs00 xs05 xs00
+eq xs01 xs06 xs01
+eq xs02 xs07 xs02
+eq xs03 xs08 xs03
+eq xs04 xs09 xs04
+eq xs05 xs10 xs05
+eq xs06 xs11 xs06
+eq xs07 xs12 xs07
+eq xs08 xs13 xs08
+eq xs08 0 xs08
+eq xs09 xs14 xs09
+eq xs09 0 xs09
+eq xs10 xs15 xs10
+eq xs10 0 xs10
+eq xs11 xs16 xs11
+eq xs12 xs17 xs12
+eq xs13 xs18 xs13
+eq xs14 xs19 xs14
+eq xs15 xs20 xs15
+eq xs16 xs21 xs16
+eq xs17 xs22 xs17
+eq xs18 xs23 xs18
+
+eq xs23 xs12 xs23
+eq xs22 xs11 xs22
+eq xs21 xs10 xs21
+eq xs20 xs09 xs20
+eq xs19 xs08 xs19
+eq xs18 xs07 xs18
+eq xs17 xs06 xs17
+eq xs16 xs05 xs16
+eq xs15 xs04 xs15
+eq xs14 xs03 xs14
+eq xs13 xs02 xs13
+eq xs12 xs01 xs12
+eq xs11 xs00 xs11
+
+# `eq` is XNOR, not XOR.  the above logic leaves two registers inverted from their correct values.
+eq xs00 0 xs00
+eq xs07 0 xs07
+
 @endfn
-
-#####################################
-# xorshift_left(-shiftby)
-# note that shiftby must be NEGATIVE
-# buffer ^= (buffer << shiftby)
-
-@fn 0 xorshift_left(shiftby) local(size) global(xorshift_state, xorshift_state_last)
-
-add shiftby 24 size
-@cpy &xorshift_state_last read1_ptr
-@cpy &xorshift_state_last write_ptr
-add &xorshift_state_last shiftby read2_ptr
-
-loop:
-eq read1_ptr:*0 read2_ptr:*0 xnor_output
-eq xnor_output:0 0 write_ptr:*0
-add -1 read1_ptr read1_ptr
-add -1 read2_ptr read2_ptr
-add -1 write_ptr write_ptr
-add -1 size size
-jt size &loop 
-
-@endfn
-
-#####################################
-# xorshift_right(-shiftby)
-# note that shiftby must be NEGATIVE
-# buffer ^= (buffer >> shiftby)
-
-@fn 0 xorshift_right(shiftby) local(size) global(xorshift_state, xorshift_state_last)
-
-add shiftby 24 size
-@cpy &xorshift_state read1_ptr
-mul shiftby -1 shiftby
-add &xorshift_state shiftby read2_ptr
-@cpy &xorshift_state write_ptr
-
-loop:
-eq read1_ptr:*0 read2_ptr:*0 xnor_output
-eq xnor_output:0 0 write_ptr:*0
-add 1 read1_ptr read1_ptr
-add 1 read2_ptr read2_ptr
-add 1 write_ptr write_ptr
-add -1 size size
-jt size &loop 
-
-@endfn
-
-
 
 #####################################
 # bits_to_int(buf_ptr, length) -> num
@@ -669,8 +682,7 @@ input_parse_error:
 @str str_answer:" answer: "
 
 @raw monkey_count: 0  price_buffer: 0 0 0 0 price_buffer_end: part1_answer: 0 part2_answer: 0
-@raw xorshift_state:  xs00:0 xs01:0 xs02:0 xs03:0  xs04:0 xs05:0 xs06:0 xs07:0  xs08:0 xs09:0 xs10:0 xs11:0 xs12:0 xs13:0 xs14:0 xs15:0  xs16:0 xs17:0 xs18:0 xs19:0 xs20:0 xs21:0 xs22:0 xorshift_state_last: xs23:0
-@raw t00:0 t01:0 t02:0 t03:0  t04:0 t05:0 t06:0 t07:0  t08:0 t09:0 t10:0 t11:0 t12:0 t13:0 t14:0 t15:0  t16:0 t17:0 t18:0 t19:0 t20:0 t21:0 t22:0 t23:0
+@raw xorshift_state:  xs00:0 xs01:0 xs02:0 xs03:0  xs04:0 xs05:0 xs06:0 xs07:0  xs08:0 xs09:0 xs10:0 xs11:0 xs12:0 xs13:0 xs14:0 xs15:0  xs16:0 xs17:0 xs18:0 xs19:0 xs20:0 xs21:0 xs22:0 xs23:0
 @raw &dle_mode &dle_output &debug_xorshift_register
 
 @raw pattern_table: 0
