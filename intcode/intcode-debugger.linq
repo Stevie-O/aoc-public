@@ -13,7 +13,7 @@ static string WorkDir;
 void Main()
 {
 	Util.NewProcess = true;
-	var dir = WorkDir = Path.Combine(Path.GetDirectoryName(Util.CurrentQueryPath), @"../2024/day22");
+	var dir = WorkDir = Path.Combine(Path.GetDirectoryName(Util.CurrentQueryPath), @"../2025/day1");
 	var code_file = File.ReadAllText(Path.Combine(dir, "a.intcode"));
 	_memoryMap = File.ReadAllLines(Path.Combine(dir, "a.map"))
 		.Where(l => l.Trim().Length > 0)
@@ -265,7 +265,7 @@ readonly struct IntcodeInput
 		} while (value == '\0');
 
 		if (false)
-			Console.WriteLine("Read character: {0}",
+			ExecutionLogFile?.WriteLine("Read character: {0}",
 					(value < 0x20) ? $"0x{value:x2}" : "'" + char.ConvertFromUtf32((int)value) + "'"
 				);
 

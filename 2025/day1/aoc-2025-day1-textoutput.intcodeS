@@ -1,0 +1,323 @@
+jf 0 &start
+@raw debug_mode: 0 skip_part1: 0 skip_part2: 0 raw_output: 0 use_dle: 1
+add &debug_mode 0 dummy:dummy
+start: rbo &bss
+
+
+####################################################
+#
+# AOC 2025 Day 1 Intcode Solver
+#
+# Input is in ASCII, output is in ASCII.
+#
+# Since the input size is indeterminate, EOF must be reported via any of these means:
+#
+# - A blank line (i.e. ends in \n\n, or \r\n\r\n)
+# - 0x00 (ASCII NUL)
+# - 0x1A (Ctrl-Z, ASCII SB; MS-DOS or CPM end-of-file indicator)
+# - 0x04 (Ctrl-D, ASCII EOT; Default EOF replacement character on *nix-style TTY drivers)
+# - a negative number (`EOF` constant returned by `fgetc`, `getc`, or `getchar`; see `stdio.h`)
+
+##########################
+#
+# EXECUTION OPTIONS BLOCK - Memory addresses 3-4
+# [3]: RFU
+# [4]: SkipPart1. Default 0. 0 = Output part 1 answer. Nonzero = Do not output part 1 answer.
+# [5]: SkipPart2. Default 0. 0 = Output part 2 answer. Nonzero = Do not output part 2 answer.
+# [6]: RawOutput. Default 0. 0 = ASCII output. Nonzero = Output all answers as raw integers.
+# [7]: UseDLE.    Default 1. 1 = Prefix raw integer output with a a DLE (0x10) character.
+#                 Unsurprisingly, this flag has no effect unless RawOutput is enabled.
+
+######################
+#
+# read a command
+
+read_input:
+in input_char
+# ignore '\r', '\t', space
+@jeq input_char '\r' &read_input
+@jeq input_char '\t' &read_input
+@jeq input_char 32 &read_input
+# terminate on NUL (\0) or ^D or EOF (-1). SOH, STX and ETX are collateral damage.
+@jle input_char 4 &end_input   
+# terminate on ^Z
+@jeq input_char 26 &end_input  
+@jeq input_char '\n' &blank_line
+@cpy 1 nonblank_line
+eq input_char 'R' is_R 
+#jt loose_parser assume_L_or_R
+eq input_char 'L' is_L
+add is_R:0 is_L:0 is_L_or_R
+jf is_L_or_R:0 &expected_l_or_r
+#assume_L_or_R:
+# spin_dir = (is_R) ? 1 : -1
+mul is_R 2 spin_dir
+add spin_dir -1 spin_dir
+
+@call &read_integer
+@cpy ~1 spin_count
+
+# reduce spin_count modulo 100
+reduce_modulo_100:
+@jlt spin_count 100 &reduce_modulo_100_complete
+add spin_count -100 spin_count
+add zero_pass_count 1 zero_pass_count
+@jmp &reduce_modulo_100
+reduce_modulo_100_complete:
+
+# note that we spun at *most* 99, since we reduced the input modulo 100, so if we started at 0, we can't pass 0
+# this means dial_position can range from -99 (L99 from 0) to 198 (R99 from 99)
+
+# check if we're already on zero.  1=not, 0=yes
+# this is needed to prevent double-counting "touched 0" when we turn the dial left from position 0
+lt 0 dial_position was_not_already_zero
+
+# spin the dial
+mul spin_count spin_dir net_spin
+add net_spin:0 dial_position dial_position
+
+@jgt dial_position 0 &land_positive
+# dial_position <= 0
+# if we weren't already on zero, add 1 to zero_pass count
+add zero_pass_count was_not_already_zero zero_pass_count
+# if we landed on 0, we're done with the modulo adjustment
+jf dial_position &adjusted_modulo
+# -100 < dial_position < 0
+# add 100 to shift to 0 < dial_position < 100
+add dial_position 100 dial_position
+@jmp &adjusted_modulo
+
+land_positive:
+@jlt dial_position 100 &adjusted_modulo
+# note that we don't need to check was_not_already_zero: we can't land here with was_not_already_zero false
+add zero_pass_count 1 zero_pass_count
+add dial_position -100 dial_position
+
+adjusted_modulo:
+
+# if we landed on zero, add 1 to the part 1 answer
+eq dial_position 0 landed_on_zero
+add zero_land_count landed_on_zero:0 zero_land_count
+
+# read the next line
+@jmp &read_input
+
+blank_line:
+jf nonblank_line:0 &read_input
+end_input:
+
+# print answers
+
+jt skip_part1 &bypass_part1
+@cpy &str_part1_answer ~1
+@cpy zero_land_count ~2
+@call &output_answer
+
+bypass_part1:
+
+jt skip_part2 &bypass_part2
+@cpy &str_part2_answer ~1
+@cpy zero_pass_count ~2
+@call &output_answer
+
+bypass_part2:
+hlt
+
+######################
+
+@raw was_not_already_zero: 0
+@raw spin_dir: 0
+@raw spin_count: 0
+
+@raw input_char: 0
+@raw dial_position: 50
+@raw zero_land_count: 0
+@raw zero_pass_count: 0
+
+
+#####################################
+#
+# read_integer()
+#
+# reads a single integer on input, terminated by a newline.
+# upon return, ~1 contains the read value
+
+@fn 1 read_integer() local(accum, numcount, digcount, intmp) global(overflow_detected, internal_error, input_parse_error)
+
+@cpy 0 numcount
+
+#next_number:
+@cpy 0 accum
+@cpy 0 digcount
+seek_digit: in intmp
+@jeq intmp '\r' &seek_digit
+@jeq intmp '\n' &eol
+@jlt intmp '0' &nondigit
+@jle intmp '9' &process_digit
+nondigit:
+jt digcount &input_parse_error
+# NUL
+jf intmp &eof_detected
+# ctrl-Z
+@jeq intmp 26 &eof_detected
+# ctrl-D
+@jeq intmp 4 &eof_detected
+# EOF from getc()
+@jlt intmp 0 &eof_detected
+@jmp &input_parse_error
+
+@jmp &input_parse_error
+
+eol:
+eof_detected:
+@jmp &finis
+
+process_digit:
+@cpy accum accum_overflowcheck
+add 1 digcount digcount
+add -'0' intmp intmp
+mul 10 accum accum
+add accum intmp accum
+
+@jle accum accum_overflowcheck:0 &overflow_detected
+@jmp &seek_digit
+
+finis:
+
+@cpy accum return0
+
+@endfn
+
+############################################################################################
+
+# output routine for both parts
+# ~1 = address of string prefix
+# ~2 = value
+
+@fn 0 output_answer(label, value) global(print_string, print_decimal, raw_output, use_dle)
+
+jt raw_output &do_raw_output
+
+@cpy label ~1
+@call &print_string
+@cpy value ~1
+@call &print_decimal
+out '\n'
+@jmp &end
+
+do_raw_output:
+
+jf use_dle &no_dle
+out 16
+no_dle:
+out value
+
+end:
+
+@endfn
+
+# print nonnegative decimal number (negative numbers will not be printed)
+# changing this to support negatives would be easy but I don't need it
+@fn 0 print_decimal(n) global(print_next_decimal_digit)
+jf n &print_zero
+@cpy n ~1
+@cpy 1 ~2
+@call &print_next_decimal_digit
+@jmp &exitfun
+print_zero: out '0'
+exitfun:
+@endfn
+
+@fn 1 print_next_decimal_digit(n, mask) local(dig, negmask)
+
+# PRECONDITIONS: n >= mask, mask is a power of 10
+# POSTCONDITIONS: upon return, ~1 has all powers of 10 greater than mask removed
+
+@cpy n ~1
+@jlt n mask &exitfn
+
+mul mask 10 ~2
+@call &print_next_decimal_digit
+@cpy ~1 n
+
+mul mask -1 negmask
+@cpy '0' dig
+compute_digit:
+@jlt n mask &done_compute_digit
+add dig 1 dig
+add n negmask n
+@jmp &compute_digit
+done_compute_digit:
+
+out dig
+
+exitfn:
+@cpy n return0
+@endfn
+
+
+# GOTCHA: return parameters and incoming arguments share stack space, so return0 and return1 are aliased with the first two arguments, respectively.
+
+#########################################################
+#
+# print_string(&str)
+
+@fn 0 print_string(string_address) local(strlen, tmpchar)
+
+@cpy string_address read_strlen
+add read_strlen:*0 0 strlen
+add 1 string_address string_reader
+message_print_loop:
+add string_reader:*0 0 tmpchar
+add string_reader 1 string_reader
+out tmpchar
+add strlen -1 strlen
+jt strlen &message_print_loop
+
+@endfn
+
+
+
+
+#####################################
+#
+# error messages, etc.
+
+@raw errmsg_ptr:0 strlen:0 tmpchar:0
+die_with_message:
+# @str puts a length prefix
+@cpy errmsg_ptr read_strlen
+add read_strlen:*0 0 strlen
+add 1 errmsg_ptr errmsg_reader
+message_print_loop:
+add errmsg_reader:*0 0 tmpchar
+add errmsg_reader 1 errmsg_reader
+out tmpchar
+add strlen -1 strlen
+jt strlen &message_print_loop
+hlt
+
+expected_l_or_r:
+@cpy &str_expected_l_or_r errmsg_ptr
+@jmp &die_with_message
+
+overflow_detected:
+@cpy &str_overflow_detected errmsg_ptr
+@jmp &die_with_message
+
+#internal_error:
+@cpy &str_internal_error errmsg_ptr
+@jmp &die_with_message
+
+input_parse_error:
+@cpy &str_input_parse_error errmsg_ptr
+@jmp &die_with_message
+
+@str str_expected_l_or_r:"Expected 'L' or 'R'\n"
+@str str_overflow_detected:"Integer overflow detected\n"
+@str str_internal_error:"Internal error\n"
+@str str_input_parse_error:"Input parse error\n"
+@str str_part1_answer: "Part 1: "
+@str str_part2_answer: "Part 2: "
+
+bss:
