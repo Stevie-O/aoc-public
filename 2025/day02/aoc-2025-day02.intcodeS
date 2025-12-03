@@ -1,5 +1,5 @@
 jf 0 &start
-@raw debug_mode: 0 raw_output: 0	 use_dle: 1 strict_nl: 0 debug_globals: 0
+@raw debug_mode: 0 raw_output: 0	 use_dle: 1 strict_nl: 0 debug_globals: 0  include_part2:1
 start: rbo &bss
 
 ####################################################
@@ -33,6 +33,7 @@ start: rbo &bss
 # [6]: Strict NL.  Default 0.
 #                 If 1, stops processing input after reading the first '\n'
 # [7]: Debug globals
+# [8]: Part2 Enable.  Default 1.  0=Skip most part2-only checks (to speed up debugging)
 
 seek_range:
 
@@ -56,6 +57,7 @@ range_found:
 @call &read_range
 @cpy ~1 got_eof
 
+@cpy &str_dg_initial_state ~1
 @callt debug_globals &dump_globals
 
 range_loop:
@@ -64,11 +66,11 @@ range_loop:
 @call &seek_invalid_id
 @cpy ~1 counts_for_part1
 
+@cpy &str_dg_after_seek_invalid_id ~1
 @callt debug_globals &dump_globals
 
 # if we went past the end of the current range, exit the loop.
 @jgt current_id_num current_range_end &exit_range_loop
-
 
 jf debug_mode &dont_print_id
 
@@ -90,6 +92,9 @@ add part1_answer counts_for_part1 part1_answer
 @jeq current_id_num current_range_end &exit_range_loop
 
 @call &increment_id
+@cpy &str_dg_after_increment_id ~1
+@callt debug_globals &dump_globals
+
 @jmp &range_loop
 
 exit_range_loop:
@@ -104,12 +109,15 @@ eof:
 @call &output_integer
 out '\n'
 
+jf include_part2 &no_part2_output
+
 @cpy &str_part2_answer ~1
 @call &print_string
 @cpy part2_answer ~1
 @call &output_integer
 out '\n'
 
+no_part2_output:
 hlt
 
 	####################################
@@ -266,7 +274,7 @@ add acc work return0
 # update current_id_num and current_id to the first invalid ID greater than or equal to the value of current_id_num before the call
 # upon return, ~1 is 1 if the ID is invalid according to the rules for part 1
 
-@fn 1 seek_invalid_id() local(best_next_id, best_must_advance, best_repeat_count, best_repeat_str_len, best_repeat_scalar) global(seek_invalid_id_sub, current_range_end, current_id_num, current_id_len, current_id_limit, current_id_digits, current_id_2nd_digit, division_table, increment_decimal)
+@fn 1 seek_invalid_id() local(best_next_id, best_must_advance, best_repeat_count, best_repeat_str_len, best_repeat_scalar) global(seek_invalid_id_sub, current_range_end, current_id_num, current_id_len, current_id_limit, current_id_digits, current_id_2nd_digit, division_table, increment_decimal, include_part2)
 
 # if the current ID is less than or equal to 11, the next invalid ID is 11
 @jgt current_id_num 11 &nontrivial
@@ -319,6 +327,8 @@ jt word_count &next_byte
 
 advance_divisor_loop:
 add divisor_count:0 -1 divisor_count
+# if not doing part 2, only process the first divisor; this will speed up calculations.
+mul divisor_count include_part2 divisor_count
 jt divisor_count &next_divisor
 
 # okay, all divisors have been checked.
@@ -428,9 +438,10 @@ add current_id_limit  9 current_id_limit
 
 @cpy 1 current_id_digits
 add current_id_len -1 digits_left
-add &current_id_digits 1 write_ptr_2
+add &current_id_digits 1 write_ptr
 write_loop:
-@cpy 0 write_ptr_2:*0
+@cpy 0 write_ptr:*0
+add write_ptr 1 write_ptr
 add digits_left:0 -1 digits_left
 jt digits_left &write_loop
 
@@ -568,7 +579,11 @@ input_parse_error:
 
 #### DEBUGGING CODE
 
-@fn 0 dump_globals() global(print_string, output_integer, current_id_num, current_range_end, current_id_len, current_id_limit, current_id_digits, max_id_len)
+@str str_dg_initial_state: "Initial ID:"
+@str str_dg_after_seek_invalid_id: "After seek_invalid_id():"
+@str str_dg_after_increment_id: "After increment_id():"
+
+@fn 0 dump_globals(string) global(print_string, output_integer, current_id_num, current_range_end, current_id_len, current_id_limit, current_id_digits, max_id_len)
 
 @jmp &past_strings
 @str str_current_range_end: "current_range_end: "
@@ -577,6 +592,10 @@ input_parse_error:
 @str str_current_id_digits: "current_id_digits: "
 @str str_current_id_len: "current_id_len: "
 past_strings:
+
+@cpy string ~1
+@call &print_string
+out '\n'
 
 @cpy &str_current_range_end ~1
 @call &print_string
@@ -613,6 +632,8 @@ out 32
 add digits_read_ptr 1 digits_read_ptr
 add digits_counter:0 -1 digits_counter
 jt digits_counter &debug_digits_loop
+out '\n'
+
 out '\n'
 
 @endfn
