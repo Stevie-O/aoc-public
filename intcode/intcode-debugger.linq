@@ -7,13 +7,14 @@
   <Namespace>System.Globalization</Namespace>
 </Query>
 
-const bool WRITE_EXECLOG = false;
+const bool WRITE_EXECLOG = true;
+const bool TRACE_INPUT = true;
 
 static string WorkDir;
 void Main()
 {
 	Util.NewProcess = true;
-	var dir = WorkDir = Path.Combine(Path.GetDirectoryName(Util.CurrentQueryPath), @"../2025/day1");
+	var dir = WorkDir = Path.Combine(Path.GetDirectoryName(Util.CurrentQueryPath), @"../2025/day02");
 	var code_file = File.ReadAllText(Path.Combine(dir, "a.intcode"));
 	_memoryMap = File.ReadAllLines(Path.Combine(dir, "a.map"))
 		.Where(l => l.Trim().Length > 0)
@@ -58,7 +59,7 @@ void Main()
 				Path.Combine(Path.GetDirectoryName(Util.CurrentQueryPath), @"intcode-execlog.txt"), false, new UTF8Encoding(false))
 				);
 		//Console.WriteLine("PART 1");
-		RunUntilHalt(cpu);
+		RunUntilHalt(cpu, instruction_limit: 1000);
 		/*
 		Console.WriteLine("-----------------");
 		cpu = cpu.Patch((1, 1));
@@ -154,7 +155,7 @@ class ExecutionLogFileWriter : IDisposable
 {
 	int instr_num = 0;
 	Queue<string> Last1000Instructions = new Queue<string>();
-	TextWriter ExecutionLogFile;
+	TextWriter ExecutionLogFile => _logFile;
 
 	TextWriter _logFile;
 	public void Dispose() { _logFile.Dispose(); }
@@ -211,7 +212,7 @@ static HashSet<int> MemoryBreakPoints = new HashSet<int>()
 class Indirect<T> { public T Value; }
 static Dictionary<int, Indirect<long>> _instructionHitCount = new Dictionary<int, Indirect<long>>();
 
-IntcodeCpu RunUntilHalt(IntcodeCpu cpu, bool print_exectime_info = true)
+IntcodeCpu RunUntilHalt(IntcodeCpu cpu, bool print_exectime_info = true, int instruction_limit = 0)
 {
 	long limit = long.MaxValue;// 1_000_000_000;
 	long instrcount = 0;
@@ -227,6 +228,10 @@ IntcodeCpu RunUntilHalt(IntcodeCpu cpu, bool print_exectime_info = true)
 			ExecutionLogFile?.Flush();
 			Console.WriteLine("Breakpoint at PC={0}", cpu.Pc);
 			Util.Break();
+		}
+		if (instruction_limit > 0 && --instruction_limit == 0)
+		{
+			break;
 		}
 		if (--limit <= 0) throw new Exception("cpu rlimit exceeded");
 		if (ExecutionLogFile != null && _addr2Name.TryGetValue(cpu.Pc, out var name))
@@ -264,7 +269,7 @@ readonly struct IntcodeInput
 			value = _input[offset++];
 		} while (value == '\0');
 
-		if (false)
+		if (TRACE_INPUT)
 			ExecutionLogFile?.WriteLine("Read character: {0}",
 					(value < 0x20) ? $"0x{value:x2}" : "'" + char.ConvertFromUtf32((int)value) + "'"
 				);
