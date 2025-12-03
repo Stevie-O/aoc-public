@@ -1,0 +1,641 @@
+jf 0 &start
+@raw debug_mode: 0 raw_output: 0	 use_dle: 1 strict_nl: 0 debug_globals: 0
+start: rbo &bss
+
+####################################################
+#
+# AOC 2025 Day 2 Intcode Solver
+#
+# Input is in ASCII, output is in ASCII.
+#
+# Input ranges are permitted to be separated by '\n' in addition to ','',' as per the original puzzle specification, -or- by \n
+#
+# All CRs ('\r' aka 13 or 0x0D) in input are **completely ignored**.
+#
+# Since the input size is indeterminate, EOF must be reported via any of these means:
+#
+# - 0x0A (ASCII NL, '\n') if strict_nl is on
+# - 0x00 (ASCII NUL)
+# - 0x1A (Ctrl-Z, ASCII SB; MS-DOS or CPM end-of-file indicator)
+# - 0x04 (Ctrl-D, ASCII EOT; Default EOF replacement character on *nix-style TTY drivers)
+# - a negative number (`EOF` constant returned by `fgetc`, `getc`, or `getchar`; see `stdio.h`)
+
+##########################
+#
+# EXECUTION OPTIONS BLOCK - Memory addresses 3-6
+# [3]: Debug Mode enable. Default 0. 1=Enable.
+#      In Debug Mode, all invalid IDs are output as they are discovered.
+#      Each ID is prefixed with "1 " or "2 ".  "1" means that this ID is invalid for both parts. 
+#      "2" means that the ID is invalid for part 2 only.
+# [4]: RawOutput. Default 0. 0 = ASCII output. Nonzero = Output all ID numbers as raw integers.
+# [5]: UseDLE.    Default 1. 1 = Prefix all raw integer output with a a DLE (0x10) character.
+#                 Unsurprisingly, this flag has no effect unless RawOutput is enabled.
+# [6]: Strict NL.  Default 0.
+#                 If 1, stops processing input after reading the first '\n'
+# [7]: Debug globals
+
+seek_range:
+
+####  Read one ID range
+
+in tmpchar
+@jeq tmpchar '\r' &seek_range
+# trigger EOF for negative, NUL (0) or ^D (4). SOH, STX, and ETX are collateral damage.
+@jle tmpchar 4 &eof
+# trigger EOF for ^Z
+@jeq tmpchar 26 &eof
+@jne tmpchar '\n' &range_found
+jt strict_nl &eof
+# glitchy on the example input
+#jt any_input &eof
+@jmp &seek_range
+
+range_found:
+@cpy 1 any_input
+@cpy tmpchar ~1
+@call &read_range
+@cpy ~1 got_eof
+
+@callt debug_globals &dump_globals
+
+range_loop:
+# okay, seek to the next invalid ID
+
+@call &seek_invalid_id
+@cpy ~1 counts_for_part1
+
+@callt debug_globals &dump_globals
+
+# if we went past the end of the current range, exit the loop.
+@jgt current_id_num current_range_end &exit_range_loop
+
+
+jf debug_mode &dont_print_id
+
+mul counts_for_part1 -1 tmp_66
+add '2' tmp_66:0 prefix_digit
+out prefix_digit:0
+out 32
+@cpy current_id_num ~1
+@call &output_integer
+out '\n'
+
+dont_print_id:
+
+add part2_answer current_id_num part2_answer
+mul current_id_num counts_for_part1 counts_for_part1
+add part1_answer counts_for_part1 part1_answer
+
+# special case needed to prevent a buffer overflow in increment_id if somebody feeds it "1-9999999999"
+@jeq current_id_num current_range_end &exit_range_loop
+
+@call &increment_id
+@jmp &range_loop
+
+exit_range_loop:
+
+jf got_eof &seek_range
+
+eof:
+
+@cpy &str_part1_answer ~1
+@call &print_string
+@cpy part1_answer ~1
+@call &output_integer
+out '\n'
+
+@cpy &str_part2_answer ~1
+@call &print_string
+@cpy part2_answer ~1
+@call &output_integer
+out '\n'
+
+hlt
+
+	####################################
+#
+# read_range(first_character)
+# read a range and populate the global variables
+
+@fn 1 read_range(first_character) local(read_eof, read_char) global(current_range_end, max_id_len, current_id_num, current_id_len, current_id_limit, current_id_digits, max_length_exceeded, input_parse_error, strict_nl)
+
+# initialize variables
+@cpy 0 current_range_end
+@cpy 0 current_id_len
+@cpy 0 current_id_limit
+@cpy &current_id_digits digit_write_ptr
+@cpy 0 current_id_num
+
+# IDs may not start with zero
+@jeq first_character '0' &input_parse_error 
+@cpy first_character read_char
+@jmp &process_start_char
+
+# read the start ID for the range
+
+read_next_start_char:
+in read_char
+@jeq read_char '-' &read_end_id
+process_start_char:
+@jlt read_char '0' &input_parse_error
+@jgt read_char '9' &input_parse_error
+# convert from ASCII to integer value
+add read_char -'0' read_digit
+
+# increment length  and check for overflow
+add current_id_len 1 current_id_len
+@jgt current_id_len max_id_len &max_length_exceeded
+
+# write the digit to current_id_digits
+@cpy read_digit:0 digit_write_ptr:*0
+add digit_write_ptr 1 digit_write_ptr
+
+# update current_id_num: 10x + read_digit
+mul current_id_num 10 current_id_num
+add current_id_num read_digit current_id_num
+
+# update current_id_limit: 10x + 9
+mul current_id_limit 10 current_id_limit
+add current_id_limit 9 current_id_limit
+
+@jmp &read_next_start_char
+
+read_end_id:
+
+#### read the (inclusive) end ID in the range
+
+in read_char
+# the first character after the '-' must be 1-9 (IDs may not begin with 0)
+@jlt read_char '1' &input_parse_error
+@jgt read_char '9' &input_parse_error
+@cpy 1 end_digits_read
+@jmp &process_end_char
+
+read_next_end_char:
+in read_char
+# ignore CRs
+@jeq read_char '\r' &read_next_end_char
+@jeq read_char ',' &finish
+# '\n' needs special handling for strict_nl mode
+eq read_char '\n' is_newline
+mul is_newline:0 strict_nl read_eof
+jt is_newline &finish
+@jeq read_char '\n' &finish
+# negative, NUL, or ^D
+lt read_char 5 read_eof
+jt read_eof &finish
+# ^Z
+eq read_char 26 read_eof
+jt read_eof &finish
+
+@jlt read_char '0' &input_parse_error
+@jgt read_char '9' &input_parse_error
+add end_digits_read:0 1 end_digits_read
+@jgt end_digits_read max_id_len &max_length_exceeded
+process_end_char:
+add read_char -'0' read_digit
+mul current_range_end 10 current_range_end
+add current_range_end read_digit current_range_end
+@jmp &read_next_end_char
+
+finish:
+@cpy read_eof return0
+
+@endfn
+
+############################################################
+#
+# key global variables
+
+@raw any_input: 0 got_eof: 0 counts_for_part1: 0
+
+# maximum number of digits. if the input contains a number with more than this many digits, an error will be reported.
+@raw max_id_len: 10
+
+@raw part1_answer: 0 part2_answer: 0
+
+# current_range_end => integer value of inclusive end of input range
+@raw current_range_end: 0 
+# current_id_num => integer value of current ID
+# current_id_len => number of digits in current ID
+# current_id_limit => 10**current_id_len - 1 (aka current_id_len '9's: 9, 99, 999, 9999...)
+@raw current_id_num: 0  current_id_len: 0   current_id_limit:  0
+# the digits of the current ID. left-aligned (no leading zeroes)
+@raw current_id_digits: 0 current_id_2nd_digit: 0 0 0 0 0 0 0 0 0 0
+
+##########################
+#
+# seek_invalid_id_sub
+#
+# helper function for seek_invalid_id
+# upon return, ~1 is the next ID as an integer
+
+@fn 1 seek_invalid_id_sub(reserved, repeat_count, repeat_str_len, repeat_scalar) local(acc, work) global(current_range_end, current_id_num, current_id_len, current_id_limit, current_id_digits)
+
+@cpy repeat_count repeat_count
+
+# parse the first <repeat_str_len> digits of current_id as an integer
+mul reserved 0 acc
+@cpy &current_id_digits rsi
+@cpy repeat_str_len rcx
+read_digits_loop:
+mul acc 10 acc
+add acc rsi:*0 acc
+add rsi 1 rsi
+add rcx:0 -1 rcx
+jt rcx &read_digits_loop
+
+mul acc repeat_scalar work
+# if acc * repeat_scalar < current_id_num, then switch to (acc + 1) * repeat_scalar
+lt work current_id_num must_advance
+mul must_advance:0 repeat_scalar acc
+add acc work return0
+
+@endfn
+
+
+####################################################
+#
+# seek_invalid_id
+#
+# update current_id_num and current_id to the first invalid ID greater than or equal to the value of current_id_num before the call
+# upon return, ~1 is 1 if the ID is invalid according to the rules for part 1
+
+@fn 1 seek_invalid_id() local(best_next_id, best_repeat_count, best_repeat_str_len, best_repeat_scalar) global(seek_invalid_id_sub, current_range_end, current_id_num, current_id_len, current_id_limit, current_id_digits, current_id_2nd_digit, division_table)
+
+# if the current ID is less than or equal to 11, the next invalid ID is 11
+@jgt current_id_num 11 &nontrivial
+
+@cpy 11 current_id_num
+@cpy 2 current_id_len
+@cpy 1 current_id_digits
+@cpy 1 current_id_2nd_digit
+@cpy 99 current_id_limit
+@cpy 1 return0
+@jmp &exitfn
+
+nontrivial:
+
+# 1 worse than the best possible answer to guarantee correct behavior
+add current_id_limit 1 best_next_id
+
+# read pointer from array
+add &division_table current_id_len division_table_ptr
+@cpy division_table_ptr:*0 length_divisors
+# read number of divisors
+@cpy length_divisors:*0 divisor_count
+
+add length_divisors 1 divisor_info_ptr
+
+# try each divisor
+next_divisor:
+
+@cpy 3 byte_count 
+@cpy 2 memcpy_write_ptr
+next_byte:
+@cpy divisor_info_ptr:*0 memcpy_write_ptr:~0
+add divisor_info_ptr 1 divisor_info_ptr
+add memcpy_write_ptr 1 memcpy_write_ptr
+add byte_count:0 -1 byte_count
+jt byte_count &next_byte
+
+@call &seek_invalid_id_sub
+# if we didn't do strictly better, don't bother with it
+@jge ~1 best_next_id &advance_divisor_loop
+@cpy ~1 best_next_id
+@cpy ~2 best_repeat_count
+@cpy ~3 best_repeat_str_len
+@cpy ~4 best_repeat_scalar
+
+advance_divisor_loop:
+add divisor_count:0 -1 divisor_count
+jt divisor_count &next_divisor
+
+# okay, all divisors have been checked.
+
+@jeq best_next_id current_id_num &already_there
+
+# okay, we need to update current_id_num and current_id_digits
+
+# update current_id_num
+@cpy best_next_id current_id_num
+
+# update current_id_digits
+add best_repeat_count -1 repeats_left
+add &current_id_digits best_repeat_str_len write_ptr
+write_next_repeat:
+@cpy &current_id_digits read_ptr
+@cpy best_repeat_str_len digits_left
+
+copy_next_digit:
+@cpy read_ptr:*0 write_ptr:*0
+add read_ptr 1 read_ptr
+add write_ptr 1 write_ptr
+add digits_left:0 -1 digits_left
+jt digits_left &copy_next_digit
+
+add repeats_left:0 -1 repeats_left
+jt repeats_left &write_next_repeat
+
+already_there:
+
+# return0 = 1 if the ID we landed on is invalid for part 1, 0 if its only invalid for part 2
+eq best_repeat_count 2 return0
+
+exitfn:
+
+@endfn
+
+######################################################
+#
+# increment_id()
+#
+# Add 1 to current_id.
+
+@fn 0 increment_id() local(current_digit) global(current_id_num, current_id_len, current_id_limit, current_id_digits)
+
+# if current_id_num == current_id_limit, we need to roll e.g. 999 to 1000
+@jeq current_id_num current_id_limit &rollover
+
+add &current_id_digits current_id_len read_ptr
+@cpy read_ptr write_ptr
+
+ripple_carry:
+add read_ptr -1 read_ptr
+add write_ptr -1 write_ptr
+add read_ptr:*0 1 current_digit
+lt current_digit 10 no_carry
+# if there's a carry, this will write 0 to the output, otherwise the incremented digit
+mul current_digit no_carry write_ptr:*0
+jf no_carry:0 &ripple_carry
+
+@jmp &finished
+
+rollover:
+
+# we're at 99, or 999, or 9999, etc.
+
+add current_id_len 1 current_id_len
+mul current_id_limit 10 current_id_limit
+add current_id_limit  9 current_id_limit
+
+# note that we are guaranteed that current_id_len > 2 at this point
+# this is because this function is never called with current_id_len < 2
+
+@cpy 1 current_id_digits
+add current_id_len -1 digits_left
+add &current_id_digits 1 write_ptr_2
+write_loop:
+@cpy 0 write_ptr_2:*0
+add digits_left:0 -1 digits_left
+jt digits_left &write_loop
+
+finished:
+
+add current_id_num 1 current_id_num
+
+@endfn
+
+############################################################################################
+#
+#  output_integer(value)
+#
+# in ASCII mode, prints value in ASCII
+# in raw mode, outputs value directly
+# if raw mode is enabled and use_dle is on, raw values are prefixed with 0x10 (DLE)
+
+@fn 0 output_integer(value) global(print_decimal, raw_output, use_dle)
+
+jt raw_output &do_raw_output
+# this works ONLY when both routines have the same number of locals+parameters
+@jmp &print_decimal
+
+do_raw_output:
+
+jf use_dle &no_dle
+out 16
+no_dle:
+out value
+
+@endfn
+
+
+
+# print nonnegative decimal number (negative numbers will not be printed)
+# changing this to support negatives would be easy but I don't need it
+@fn 0 print_decimal(n) global(print_next_decimal_digit)
+jf n &print_zero
+@cpy n ~1
+@cpy 1 ~2
+@call &print_next_decimal_digit
+@jmp &exitfun
+print_zero: out '0'
+exitfun:
+@endfn
+
+@fn 1 print_next_decimal_digit(n, mask) local(dig, negmask)
+
+# PRECONDITIONS: n >= mask, mask is a power of 10
+# POSTCONDITIONS: upon return, ~1 has all powers of 10 greater than mask removed
+
+@cpy n ~1
+@jlt n mask &exitfn
+
+mul mask 10 ~2
+@call &print_next_decimal_digit
+@cpy ~1 n
+
+mul mask -1 negmask
+@cpy '0' dig
+compute_digit:
+@jlt n mask &done_compute_digit
+add dig 1 dig
+add n negmask n
+@jmp &compute_digit
+done_compute_digit:
+
+out dig
+
+exitfn:
+@cpy n return0
+@endfn
+
+
+# GOTCHA: return parameters and incoming arguments share stack space, so return0 and return1 are aliased with the first two arguments, respectively.
+
+#########################################################
+#
+# print_string(&str)
+
+@fn 0 print_string(string_address) local(strlen, tmpchar)
+
+@cpy string_address read_strlen
+add read_strlen:*0 0 strlen
+add 1 string_address string_reader
+message_print_loop:
+add string_reader:*0 0 tmpchar
+add string_reader 1 string_reader
+out tmpchar
+add strlen -1 strlen
+jt strlen &message_print_loop
+
+@endfn
+
+#####################################
+#
+# error messages, etc.
+
+@raw errmsg_ptr:0 strlen:0 tmpchar:0
+die_with_message:
+# @str puts a length prefix
+@cpy errmsg_ptr read_strlen
+add read_strlen:*0 0 strlen
+add 1 errmsg_ptr errmsg_reader
+message_print_loop:
+add errmsg_reader:*0 0 tmpchar
+add errmsg_reader 1 errmsg_reader
+out tmpchar
+add strlen -1 strlen
+jt strlen &message_print_loop
+hlt
+
+max_length_exceeded:
+@cpy &str_max_length_exceeded errmsg_ptr
+@jmp &die_with_message
+
+#internal_error:
+@cpy &str_internal_error errmsg_ptr
+@jmp &die_with_message
+
+input_parse_error:
+@cpy &str_input_parse_error errmsg_ptr
+@jmp &die_with_message
+
+@str str_max_length_exceeded:"ID exceeds maximum length\n"
+@str str_internal_error:"Internal error\n"
+@str str_input_parse_error:"Input parse error\n"
+@str str_part1_answer: "Part 1: "
+@str str_part2_answer: "Part 2: "
+
+#### DEBUGGING CODE
+
+@fn 0 dump_globals() global(print_string, output_integer, current_id_num, current_range_end, current_id_len, current_id_limit, current_id_digits, max_id_len)
+
+@jmp &past_strings
+@str str_current_range_end: "current_range_end: "
+@str str_current_id_num: "current_id_num: "
+@str str_current_id_limit: "current_id_limit: "
+@str str_current_id_digits: "current_id_digits: "
+@str str_current_id_len: "current_id_len: "
+past_strings:
+
+@cpy &str_current_range_end ~1
+@call &print_string
+@cpy current_range_end ~1
+@call &output_integer
+out '\n'
+
+@cpy &str_current_id_num ~1
+@call &print_string
+@cpy current_id_num ~1
+@call &output_integer
+out '\n'
+
+@cpy &str_current_id_limit ~1
+@call &print_string
+@cpy current_id_limit ~1
+@call &output_integer
+out '\n'
+
+@cpy &str_current_id_len ~1
+@call &print_string
+@cpy current_id_len ~1
+@call &output_integer
+out '\n'
+
+@cpy &str_current_id_digits ~1
+@call &print_string
+@cpy &current_id_digits digits_read_ptr
+@cpy max_id_len digits_counter
+debug_digits_loop:
+@cpy digits_read_ptr:*0 ~1
+@call &output_integer
+out 32
+add digits_read_ptr 1 digits_read_ptr
+add digits_counter:0 -1 digits_counter
+jt digits_counter &debug_digits_loop
+out '\n'
+
+@endfn
+
+
+####################################
+#
+# string length divisor tables
+# note that if 2 is a valid divisor, it must be listed first for part 1 to be answered correctly.
+
+@raw length_2_divisors: 1
+# 2 copies of a 1-digit number
+@raw 2 1 11
+
+@raw length_3_divisors: 1
+# 3 copies of a 1-digit number
+@raw 3 1 111
+
+@raw length_4_divisors: 2
+# 2 copies of a 2-digit number
+@raw 2 2 101
+# 4 copies of a 1-digit number
+@raw 4 1 1111
+
+@raw length_5_divisors: 1
+# 5 copies of a 1-digit number
+@raw 5 1 11111
+
+@raw length_6_divisors: 3
+# 2 copies of a 3-digit number
+@raw 2 3 1001
+# 3 copies of a 2-digit number
+@raw 3 2 10101
+# 6 copies of a 1-digit number
+@raw 6 1 111111
+
+@raw length_7_divisors: 1
+# 7 copies of a 1-digit number
+@raw 7 1 1111111
+
+@raw length_8_divisors: 3
+# 2 copies of a 4-digit number
+@raw 2 4 10001
+# 4 copies of a 2-digit number
+@raw 4 2 1010101
+# 8 copies of a 1-digit number
+@raw 8 1 11111111
+
+@raw length_9_divisors: 2
+# 3 copies of a 3-digit number
+@raw 3 3 1001001
+# 9 copies of a 1-digit number
+@raw 9 1 111111111
+
+@raw length_10_divisors: 3
+# 2 copies of a 5-digit number
+@raw 2 5 100001
+# 5 copies of a 2-digit number
+@raw 5 2 101010101
+# 10 copies of a 1-digit number
+@raw 10 1 1111111111
+
+@raw division_table: -1 -1
+@raw &length_2_divisors
+@raw &length_3_divisors
+@raw &length_4_divisors
+@raw &length_5_divisors
+@raw &length_6_divisors
+@raw &length_7_divisors
+@raw &length_8_divisors
+@raw &length_9_divisors
+@raw &length_10_divisors
+@raw -1
+
+bss:

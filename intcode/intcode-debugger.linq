@@ -37,11 +37,16 @@ void Main()
 	//	OutputTextWriter = stdout_file;
 	//	OutputLiterals = true;
 
-	//	cpu = cpu.Patch((4, 2), (5, 2000));
+	cpu = cpu.Patch((3, 1), (4, 1)
+		, (7, 1)
+		);
 	//cpu = cpu.Patch( (4, 1), (6, 1995), (7, 1));
 	//	cpu = cpu.Patch( (4, 1), (6, 1995), (7, 1));
 
-	var day22_input = File.ReadAllText(Path.Combine(dir, "day22.txt"));
+	var day22_input = File.ReadAllText(
+		//Path.Combine(dir, "example.txt")
+		Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments), @"LINQPad Queries\advent-of-code\2025\day02.txt")
+		);
 	//var day22_prices = File.ReadAllText(Path.Combine(dir, "day22-prices.txt"));
 
 	//DebugDay22PatternMemory(cpu, day22_prices);
@@ -59,7 +64,7 @@ void Main()
 				Path.Combine(Path.GetDirectoryName(Util.CurrentQueryPath), @"intcode-execlog.txt"), false, new UTF8Encoding(false))
 				);
 		//Console.WriteLine("PART 1");
-		RunUntilHalt(cpu, instruction_limit: 1000);
+		RunUntilHalt(cpu, instruction_limit: 10_000);
 		/*
 		Console.WriteLine("-----------------");
 		cpu = cpu.Patch((1, 1));
@@ -174,7 +179,7 @@ class ExecutionLogFileWriter : IDisposable
 }
 
 TextWriter OutputTextWriter = Console.Out;
-bool OutputLiterals = false;
+bool OutputLiterals = true;
 
 bool dle_received = false;
 const byte DLE = 16;
@@ -183,7 +188,7 @@ void PrintOutput(memval_t value)
 	if (dle_received)
 	{
 		dle_received = false;
-		if (OutputLiterals) OutputTextWriter.WriteLine(value);
+		if (OutputLiterals) OutputTextWriter.Write(value);
 		else value.Dump("Dumped value");
 		return;
 	}
