@@ -452,6 +452,9 @@ add current_id_num 1 current_id_num
 
 jt raw_output &do_raw_output
 # this works ONLY when both routines have the same number of locals+parameters
+# UPDATE: tail-call doesn't actually work correctly because the relative base register (i.e. stack pointer) isn't adjusted correctly.
+@cpy value ~1
+@cpy &no_raw_output ~0
 @jmp &print_decimal
 
 do_raw_output:
@@ -460,6 +463,8 @@ jf use_dle &no_dle
 out 16
 no_dle:
 out value
+
+no_raw_output:
 
 @endfn
 
