@@ -228,14 +228,17 @@ finish:
 # seek_invalid_id_sub
 #
 # helper function for seek_invalid_id
-# upon return, ~1 is the next ID as an integer
+# upon return:
+#    ~1 is the next ID as an integer
+#    ~2 is 1 if we need to increment the substring before applying the repeat
 
-@fn 1 seek_invalid_id_sub(reserved, repeat_count, repeat_str_len, repeat_scalar) local(acc, work) global(current_range_end, current_id_num, current_id_len, current_id_limit, current_id_digits)
+@fn 2 seek_invalid_id_sub(reserved0, reserved1, repeat_count, repeat_str_len, repeat_scalar) local(acc, work) global(current_range_end, current_id_num, current_id_len, current_id_limit, current_id_digits)
 
-@cpy repeat_count repeat_count
+# prevent the compiler from bitching
+add repeat_count reserved1 reserved0
 
 # parse the first <repeat_str_len> digits of current_id as an integer
-mul reserved 0 acc
+@cpy 0 acc
 @cpy &current_id_digits rsi
 @cpy repeat_str_len rcx
 read_digits_loop:
@@ -249,7 +252,9 @@ mul acc repeat_scalar work
 # if acc * repeat_scalar < current_id_num, then switch to (acc + 1) * repeat_scalar
 lt work current_id_num must_advance
 mul must_advance:0 repeat_scalar acc
+
 add acc work return0
+@cpy must_advance return1
 
 @endfn
 
@@ -261,7 +266,7 @@ add acc work return0
 # update current_id_num and current_id to the first invalid ID greater than or equal to the value of current_id_num before the call
 # upon return, ~1 is 1 if the ID is invalid according to the rules for part 1
 
-@fn 1 seek_invalid_id() local(best_next_id, best_repeat_count, best_repeat_str_len, best_repeat_scalar) global(seek_invalid_id_sub, current_range_end, current_id_num, current_id_len, current_id_limit, current_id_digits, current_id_2nd_digit, division_table)
+@fn 1 seek_invalid_id() local(best_next_id, best_must_advance, best_repeat_count, best_repeat_str_len, best_repeat_scalar) global(seek_invalid_id_sub, current_range_end, current_id_num, current_id_len, current_id_limit, current_id_digits, current_id_2nd_digit, division_table, increment_decimal)
 
 # if the current ID is less than or equal to 11, the next invalid ID is 11
 @jgt current_id_num 11 &nontrivial
@@ -290,22 +295,27 @@ add length_divisors 1 divisor_info_ptr
 # try each divisor
 next_divisor:
 
-@cpy 3 byte_count 
-@cpy 2 memcpy_write_ptr
+# copy 3 words
+@cpy 3 word_count 
+# to ~3, ~4, ~5
+@cpy 3 memcpy_write_ptr
 next_byte:
 @cpy divisor_info_ptr:*0 memcpy_write_ptr:~0
 add divisor_info_ptr 1 divisor_info_ptr
 add memcpy_write_ptr 1 memcpy_write_ptr
-add byte_count:0 -1 byte_count
-jt byte_count &next_byte
+add word_count:0 -1 word_count
+jt word_count &next_byte
 
 @call &seek_invalid_id_sub
 # if we didn't do strictly better, don't bother with it
 @jge ~1 best_next_id &advance_divisor_loop
+
+# update our "best answer" data
 @cpy ~1 best_next_id
-@cpy ~2 best_repeat_count
-@cpy ~3 best_repeat_str_len
-@cpy ~4 best_repeat_scalar
+@cpy ~2 best_must_advance
+@cpy ~3 best_repeat_count
+@cpy ~4 best_repeat_str_len
+@cpy ~5 best_repeat_scalar
 
 advance_divisor_loop:
 add divisor_count:0 -1 divisor_count
@@ -319,6 +329,14 @@ jt divisor_count &next_divisor
 
 # update current_id_num
 @cpy best_next_id current_id_num
+
+jf best_must_advance &no_advance
+# example: input was e.g. 52506123.  52505250 doesn't work, so we need to go to 52515251
+# to do that, we need to first increment the prefix from 5250 to 5251
+@cpy &current_id_digits ~1
+@cpy best_repeat_str_len ~2
+@call &increment_decimal
+no_advance:
 
 # update current_id_digits
 add best_repeat_count -1 repeats_left
@@ -348,28 +366,54 @@ exitfn:
 
 ######################################################
 #
-# increment_id()
+# increment_decimal(&array, length)
 #
-# Add 1 to current_id.
+# &start is the address of an array of decimal digits (0-9) in big-endian order
+# length is the number of digits stored in the array
+#
+# return value is carry-out
 
-@fn 0 increment_id() local(current_digit) global(current_id_num, current_id_len, current_id_limit, current_id_digits)
+@fn 1 increment_decimal(array_address, length)
 
-# if current_id_num == current_id_limit, we need to roll e.g. 999 to 1000
-@jeq current_id_num current_id_limit &rollover
-
-add &current_id_digits current_id_len read_ptr
-@cpy read_ptr write_ptr
+add array_address length read_ptr
+add array_address length write_ptr
 
 ripple_carry:
 add read_ptr -1 read_ptr
 add write_ptr -1 write_ptr
-add read_ptr:*0 1 current_digit
+@cpy read_ptr:*0 current_digit
+add current_digit:0 1 current_digit
 lt current_digit 10 no_carry
-# if there's a carry, this will write 0 to the output, otherwise the incremented digit
-mul current_digit no_carry write_ptr:*0
-jf no_carry:0 &ripple_carry
+# if there's a carry, this will write 0 to the output (instead of 10), otherwise the incremented digit
+mul current_digit no_carry:0 write_ptr:*0
 
-@jmp &finished
+# we want to loop only if no_carry=0 AND array_address != read_ptr
+
+eq array_address read_ptr must_stop_loop
+add must_stop_loop no_carry must_stop_loop
+jf must_stop_loop:0 &ripple_carry
+
+eq no_carry 0 return0
+
+@endfn
+
+######################################################
+#
+# increment_id()
+#
+# Add 1 to current_id.
+
+@fn 0 increment_id() global(current_id_num, current_id_len, current_id_limit, current_id_digits, increment_decimal)
+
+# if current_id_num == current_id_limit, we need to roll e.g. 999 to 1000
+@jeq current_id_num current_id_limit &rollover
+
+@cpy &current_id_digits ~1
+@cpy current_id_len ~2
+#@call &increment_decimal
+#@jmp &finished
+@cpy &finished ~0
+@jmp &increment_decimal
 
 rollover:
 
