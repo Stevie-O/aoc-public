@@ -36,9 +36,11 @@ void Main()
 			code_file
 		));
 
+/*
 	using var stdout_file = new StreamWriter(Path.Combine(dir, "output.txt"), false);
 	OutputTextWriter = stdout_file;
 	OutputLiterals = true;
+*/
 
 	cpu = cpu.Patch(
 		//(3, 1)   // debug mode
@@ -54,9 +56,15 @@ void Main()
 		Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), @"aoc-gh\2025\day02.txt")
 		);
 	// stress input
-	day2_input = "1-9999999999";
-	// failing test case
+	//day2_input = "1-9999999999";
+	// failing test case found on stress input
 	//day2_input = "99998-101100";
+
+	// challenge inputs from reddit: https://www.reddit.com/r/adventofcode/comments/1pc2h1l/2025_day_2_challenge_input/
+	day2_input = "11-42,95-115,998-7012,1188511880-2188511890,222220-222224,1698522-1698528,446443-646449,38593856-38593862,565653-565659,824824821-824824827,2121212118-2321212124";
+	// challenge input 2 (fails due to inputs that are longer than 15 characters)
+	//day2_input = "11-42,95-115,998-7012,222220-222224,446443-646449,1698522-1698528,38593856-38593862,824824821-824824827,1188511880-2321212124,202001202277-532532532530";
+	
 	//var day22_prices = File.ReadAllText(Path.Combine(dir, "day22-prices.txt"));
 
 	//return;
