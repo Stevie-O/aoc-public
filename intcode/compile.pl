@@ -309,6 +309,9 @@ sub compile {
           my ($mode_str, $val) = ($1, $2);
           $addr_mode = $mode_str eq '*' ? 0 : $mode_str eq '' ? 1 : $mode_str eq '~' ? 2 : die;
           $out_vals[$i] = $val;
+		} elsif ($in_vals[$i] eq '__LINE__') {
+			$addr_mode = 1;
+			$out_vals[$i] = $.;
         } elsif ($in_vals[$i] =~ /^([\&\*]?)([a-z_]\w*)$/i) {
           my ($mode_str, $label) = ($1, lc $2);
           $label = "$label_prefix$label" unless $label_prefix_except{$label};

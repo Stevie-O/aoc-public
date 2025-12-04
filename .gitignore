@@ -1,8 +1,8 @@
 day*.txt
 
-intcode/intcode-execlog.txt
-*.map
-*.intcode
+intcode-execlog.txt
+output.txt
 
-2024/day22/output.txt
+*.map
+
 2024/day22/pattern_mem.txt
