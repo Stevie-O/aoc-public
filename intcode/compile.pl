@@ -259,6 +259,10 @@ sub compile {
       shift @in_vals;
       $linemode = 'raw';
     }
+	elsif ($in_vals[0] eq '@reference') {
+	  shift @in_vals;
+	  $linemode = 'reference'
+	}
 
     for (my $i=0; $i<@in_vals; $i++) {
       while ($in_vals[$i] =~ s/^((?!\d)\w+)\://) {
@@ -269,7 +273,6 @@ sub compile {
         die "duplicate label $label" if exists $label_addr{$label};
         $label_addr{$label} = @compiled + $i;
 		$label_defline{$label} = $.;
-
       }
       if ($in_vals[$i] !~ /\S/) {
         shift @in_vals;
@@ -289,10 +292,11 @@ sub compile {
 		if (defined($neg) && $neg eq '-') { $in_vals[$i] *= -1; }
       }
 
-      if ($i == 0 && $linemode ne 'raw') {
+      if ($i == 0 && $linemode ne 'raw' && $linemode ne 'reference') {
         if ($in_vals[0] =~ /^\-?\d+$/) {
           $warn->("using literal value as opcode with no parameter validation in line: $line");
           $out_vals[$i] = $in_vals[0];
+		} elsif ($in_vals[0] =~ /^!__reference\s+(\w+)$/) {
         } else {
           die "unknown instruction $in_vals[0] in line: $line" unless exists $instr{$in_vals[0]};
           die "wrong number of args for instruction $in_vals[0] of line: $line" unless @in_vals == $instr{$in_vals[0]}{args}+1;
@@ -322,7 +326,11 @@ sub compile {
             $addr_mode = $mode_str eq '&' ? 1 : 0;
           }
           $out_vals[$i] = "LABEL";
-          push @{$label_uses{$label}}, @compiled + $i;
+		  if ($linemode eq 'reference') {
+				push @{$label_uses{$label}}, ();
+		  } else {
+			push @{$label_uses{$label}}, @compiled + $i;
+		  }
 		  push @{$label_linerefs{$label}}, $.;
         } else {
 				print STDERR "in_vals: ", join(', ', map "[$_]", @in_vals), "\n";
@@ -331,6 +339,8 @@ sub compile {
 
         if ($linemode eq 'raw') {
           die "values must be immediate in raw line: $line" unless $addr_mode == 1;
+	    } elsif ($linemode eq 'reference') {
+			@out_vals = ();
         } else {
           die "immediate value in lval parameter in line: $line" if $addr_mode == 1 && $instr{$in_vals[0]} && $instr{$in_vals[0]}{lvals}[$i-1];
           $out_vals[0] += $addr_mode * 10**($i+1);

@@ -1,0 +1,178 @@
+@reference assertion_failed 
+
+jf 0 &start
+@raw raw_output: 0 use_dle: 1
+start: rbo &auto__end
+
+@cpy &str_test1_fmt ~1
+@cpy 42 ~2
+@cpy 1234567890123456 ~3
+@call &printf
+
+@cpy &str_print_and_die_test ~1
+@jmp &print_and_die
+
+hlt
+
+############################################################################################
+# output.lib
+
+############################################################################################
+#
+#  output_integer(value)
+#
+# in ASCII mode, prints value in ASCII
+# in raw mode, outputs value directly
+# if raw mode is enabled and use_dle is on, raw values are prefixed with 0x10 (DLE)
+
+@fn 0 output_integer(value) global(print_decimal, raw_output, use_dle)
+
+jt raw_output &do_raw_output
+# this works ONLY when both routines have the same number of locals+parameters
+# UPDATE: tail-call doesn't actually work correctly because the relative base register (i.e. stack pointer) isn't adjusted correctly.
+@cpy value ~1
+@cpy &no_raw_output ~0
+@jmp &print_decimal
+
+do_raw_output:
+
+jf use_dle &no_dle
+out 16
+no_dle:
+out value
+
+no_raw_output:
+
+@endfn
+
+
+
+# print nonnegative decimal number (negative numbers will not be printed)
+# changing this to support negatives would be easy but I don't need it
+@fn 0 print_decimal(n) global(print_next_decimal_digit)
+jf n &print_zero
+@cpy n ~1
+@cpy 1 ~2
+@call &print_next_decimal_digit
+@jmp &exitfun
+print_zero: out '0'
+exitfun:
+@endfn
+
+@fn 1 print_next_decimal_digit(n, mask) local(dig, negmask)
+
+# PRECONDITIONS: n >= mask, mask is a power of 10
+# POSTCONDITIONS: upon return, ~1 has all powers of 10 greater than mask removed
+
+@cpy n ~1
+@jlt n mask &exitfn
+
+mul mask 10 ~2
+@call &print_next_decimal_digit
+@cpy ~1 n
+
+mul mask -1 negmask
+@cpy '0' dig
+compute_digit:
+@jlt n mask &done_compute_digit
+add dig 1 dig
+add n negmask n
+@jmp &compute_digit
+done_compute_digit:
+
+out dig
+
+exitfn:
+@cpy n return0
+@endfn
+
+
+# GOTCHA: return parameters and incoming arguments share stack space, so be careful
+
+#########################################################
+#
+# print_string(&str)
+
+@fn 0 print_string(string_address) local(strlen, tmpchar)
+
+@cpy string_address read_strlen
+add read_strlen:*0 0 strlen
+add 1 string_address string_reader
+message_print_loop:
+add string_reader:*0 0 tmpchar
+add string_reader 1 string_reader
+out tmpchar
+add strlen -1 strlen
+jt strlen &message_print_loop
+
+@endfn
+
+#########################################################
+#
+# printf(&str, ...)
+#
+# TODO: experiment with using NUL-terminated strings instead.
+
+@fn 0 printf(format_string, arg0, arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8, arg9) global(output_integer)
+
+@reference arg1 arg2 arg3 arg4 arg5 arg6 arg7 arg8 arg9
+@cpy 0 arg_shift
+@cpy format_string read_length_ptr
+@cpy read_length_ptr:*0 format_string_length
+jf format_string_length:0 &exit_fn
+add format_string 1 read_string_ptr
+
+process_next_char:
+@cpy read_string_ptr:*0 next_char
+add read_string_ptr 1 read_string_ptr
+add format_string_length -1 format_string_length
+@jeq next_char '%' &process_format
+out next_char:0
+@jmp &advance_loop
+process_format:
+@cpy read_string_ptr read_string_ptr2
+@cpy read_string_ptr2:*0 next_char
+add read_string_ptr 1 read_string_ptr
+add format_string_length -1 format_string_length
+@jeq next_char '%' &format_literal_percent
+@jeq next_char 'c' &format_char
+# assume %d by default
+
+#format_integer:
+@cpy arg0 ~1
+@call &output_integer
+rbo 1
+add arg_shift -1 arg_shift
+@jmp &advance_loop
+
+format_literal_percent:
+out '%'
+@jmp &advance_loop
+
+format_char:
+out arg0
+rbo 1
+add arg_shift -1 arg_shift
+@jmp &advance_loop
+
+advance_loop:
+jt format_string_length &process_next_char
+
+exit_fn:
+rbo arg_shift:0
+@endfn
+
+
+#####################################
+#
+# error routines. call with @jmp, not @call (well, @call is fine, but it's a waste)
+
+# print_and_die
+
+print_and_die:
+@call &print_string
+hlt
+
+
+@str str_test1_fmt: "Format test:\nChar '%c'\nLiteral percent sign: %%\nNumber: %d\n"
+@str str_print_and_die_test: "print_and_die test\n"
