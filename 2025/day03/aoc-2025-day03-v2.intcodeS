@@ -1,0 +1,544 @@
+jt max_batteries:12 &start
+@jmp &invalid_battery_count
+debug_controls:
+@raw print_per_bank_joltage:0 raw_output: 0 use_dle: 1 print_line_numbers:0
+@raw &debug_controls 
+start: rbo &bss
+@jlt max_batteries 1 &invalid_battery_count
+@jgt max_batteries buffer_size &invalid_battery_count
+
+####################################################
+#
+# AOC 2025 Day 3 Intcode Solver
+#
+# Input is in ASCII, output is in ASCII.
+#
+# Unlike my solvers for days 1 and 2, this one can only solve one part at a time.
+#
+# The second integer in the program controls which part to run:
+#   2 = solve part 1
+#  12 = solve part 2
+#
+# All CRs ('\r' aka 13 or 0x0D) in input are **completely ignored**.
+#
+# Since the input size is indeterminate, EOF must be reported via any of these means:
+#
+# - 0x00 (ASCII NUL)
+# - 0x1A (Ctrl-Z, ASCII SB; MS-DOS or CPM end-of-file indicator)
+# - 0x04 (Ctrl-D, ASCII EOT; Default EOF replacement character on *nix-style TTY drivers)
+# - a negative number (`EOF` constant returned by `fgetc`, `getc`, or `getchar`; see `stdio.h`)
+
+##########################
+#
+# EXECUTION OPTIONS BLOCK - Memory addresses 1, 4-7
+# [1]: Number of batteries to turn on in each bank.
+#      Part 1 requires 2, while part 2 requires 12.
+#      You can actually set this to any value from 1-30, although unless your intcode VM supports very large integers,
+#      setting it higher than 12 is likely to produce incorrect output due to integer overflow.
+#       
+# [6]: print_per_bank_joltage. Default 0. If 1, output the maximum joltage for each individual bank.
+# [7]: RawOutput. Default 0. 0 = ASCII output. Nonzero = Output all ID numbers as raw integers.
+# [8]: UseDLE.    Default 1. 1 = Prefix all raw integer output with a a DLE (0x10) character.
+#                 Unsurprisingly, this flag has no effect unless RawOutput is enabled.
+
+# [9]: print_line_numbers. Default 0.  If 1, prints line numbers before printing per-bank joltage values.
+
+# DO NOT JUMP HERE if got_eof is true
+read_next_bank:
+
+# we have not read the end of the bank yet
+@cpy 0 bank_end
+# clear the input queue
+@cpy 0 input_queue_len
+# the following two shouldn't be necessary, but just in case...
+@cpy &input_queue_buffer input_queue_write_ptr
+@cpy &input_queue_buffer input_queue_read_ptr
+# clear the joltage buffer. this IS necessary.
+@cpy 0 joltage_buffer_len
+@cpy &joltage_buffer ~1
+@cpy 0 ~2
+@cpy BUFFER_SIZE ~3
+@call &memset
+# prime the input queue
+add bank_line_number 1 bank_line_number
+@call &prime_input_queue
+# ignore blank lines
+jf input_queue_len &continue_onto_next_bank
+# error if a non-blank line has too few characters
+@jne input_queue_len max_batteries &bank_too_small
+
+# process the first character
+@call &process_first_character
+jt bank_end &wait_thats_it
+# process characters until the input queue is empty.
+bank_read_loop:
+@call &process_next_character
+jt input_queue_len &bank_read_loop
+wait_thats_it:
+
+# if everything worked correctly, joltage_buffer_len should be equal to max_batteries
+@cpy __LINE__ ~1
+@jne joltage_buffer_len max_batteries &assertion_failed
+@call &decode_joltage_buffer
+
+@cpy ~1 bank_joltage
+
+jf print_per_bank_joltage &skip_print_per_bank_joltage
+@callt print_line_numbers &print_current_line_number
+@cpy bank_joltage ~1
+@call &output_integer
+out '\n'
+skip_print_per_bank_joltage:
+
+add total_joltage bank_joltage:0 total_joltage
+
+continue_onto_next_bank:
+jf got_eof &read_next_bank
+
+eq max_batteries 2 is_part1
+eq max_batteries 12 is_part2
+add is_part1 is_part2 is_part1_or_2
+eq is_part1_or_2:0 0 is_custom
+@cpy &print_end ~0
+jt is_part1:0 &print_part1_answer
+jt is_part2:0 &print_part2_answer
+jt is_custom:0 &print_custom_answer
+print_end:
+
+@cpy total_joltage ~1
+@call &output_integer
+out '\n'
+
+hlt
+
+###############################################################################
+#
+# print_current_line_number
+#
+
+@fn 0 print_current_line_number() global(bank_line_number, output_integer)
+
+@cpy bank_line_number ~1
+@call &output_integer
+out 32
+
+@endfn
+
+###############################################################################
+#
+# decode_joltage_buffer
+#
+# upon return: ~1 is the integer value of the maximum achievable joltage for the current bank.
+
+@fn 1 decode_joltage_buffer() local(acc) global(joltage_buffer, joltage_buffer_len)
+
+@cpy &joltage_buffer rsi
+@cpy joltage_buffer_len rcx
+@cpy 0 acc
+
+loop:
+mul acc 10 acc
+add acc rsi:*0 acc
+add rsi 1 rsi
+add rcx:0 -1 rcx
+jt rcx &loop
+
+@cpy acc return0
+@endfn
+
+#################################################
+#
+# process_first_character
+#
+#    Process the first character of a bank.
+#
+
+@fn 0 process_first_character() global(read_from_input_queue, joltage_buffer, joltage_buffer_len)
+
+@call &read_from_input_queue
+@cpy ~1 joltage_buffer
+@cpy 1 joltage_buffer_len
+
+@endfn
+
+###############################################################################
+#
+#
+# process_next_character
+#
+#    Process the next character of input.
+@fn 0 process_next_character() local(read_digit, test_digit, chars_left, new_joltage_buffer_len, scan_pos, write_pos, min_write_pos) global(read_from_input_queue, joltage_buffer, joltage_buffer_len, max_batteries, memset)
+
+# read a digit (decoded) from the input queue.
+@call &read_from_input_queue
+@cpy ~1 read_digit
+@cpy ~2 chars_left
+
+mul chars_left -1 min_write_pos
+add min_write_pos max_batteries min_write_pos
+# okay, "min_write_pos" is the lowest valid index/offset into joltage_buffer that we may write to
+
+add joltage_buffer_len -1 scan_pos
+# seek *backwards*, looking for the largest value less than read_digit
+scan_buffer:
+# if we've gone too far back, terminate the scan
+@jlt scan_pos min_write_pos &scan_terminate
+add &joltage_buffer scan_pos scan_rsi
+@cpy scan_rsi:*0 test_digit
+# if joltage_buffer[scan_pos] >= read_digit, terminate the scan
+@jge test_digit read_digit &scan_terminate
+# keep searching
+add scan_pos -1 scan_pos
+@jmp &scan_buffer
+
+scan_terminate:
+# okay, we want to write to joltage_buffer[write_pos]
+add scan_pos 1 write_pos 
+add write_pos 1 new_joltage_buffer_len
+# see if we can even _do_ that, or if it's out-of-range
+@jgt new_joltage_buffer_len max_batteries &finis
+
+# okay, yes, we can do this write.
+add &joltage_buffer write_pos write_rdi
+@cpy read_digit write_rdi:*0
+
+# update the length (be it shorter, the same, or longer)
+@cpy new_joltage_buffer_len joltage_buffer_len
+
+
+finis:
+
+@endfn
+
+
+
+
+###############################################################################
+#
+# read_from_input_queue()
+# read a character from the input queue
+# do not call if the input queue is empty.  always check input_queue_len first.
+#
+# upon return:
+#	~1 = the character (value) read from the input queue.
+#   ~2 = the lesser of: max_batteries, or the number of unprocessed characters remaining
+#        note that this will always be at least 1, because you haven't processed the character that was just read
+
+# NOTE: not a @fn due to compiler limitations I can't be bothered to fix right now.
+read_from_input_queue:
+rbo 2
+
+@cpy __LINE__ ~1
+jf input_queue_len &assertion_failed
+
+@cpy input_queue_len input_queue_len_save
+@cpy input_queue_read_ptr:*0 _rfiq_read_char
+add input_queue_read_ptr 1 input_queue_read_ptr
+@jlt input_queue_read_ptr &input_queue_buffer_end &_rfiq_no_wrap
+@cpy &input_queue_buffer input_queue_read_ptr
+_rfiq_no_wrap:
+add input_queue_len -1 input_queue_len
+
+# try to replace the character we just removed
+@callf bank_end &read_into_input_queue
+
+rbo -2
+@cpy _rfiq_read_char:0 ~1
+@cpy input_queue_len_save:0 ~2
+@jmp ~0
+
+###############################################################################
+#
+# prime_input_queue
+#
+# Fills the input queue with enough characters to make things work.
+
+@fn 0 prime_input_queue() global(assertion_failed, input_queue_len, bank_end, max_batteries, read_into_input_queue)
+
+# input queue should be empty
+@cpy __LINE__ ~1
+jt input_queue_len &assertion_failed
+
+@cpy max_batteries counter
+loop:
+@callf bank_end &read_into_input_queue
+add counter:0 -1 counter
+jt counter &loop
+
+@endfn
+
+###############################################################################
+#
+# read_into_input_queue()
+# read a character fom the input and place it into the input queue.
+#
+# always call conditionally: @callf bank_end &read_into_input_queue
+
+# NOTE: not a @fn due to compiler limitations I can't be bothered to fix right now.
+
+read_into_input_queue:
+
+@cpy __LINE__ ~1
+jt bank_end &assertion_failed
+
+_rtiq_try_again:
+in ~1
+@jeq ~1 '\r' &_rtiq_try_again
+@jle ~1 4 &_rtiq_is_eof
+@jeq ~1 26 &_rtiq_is_eof
+@jeq ~1 '\n' &_rtiq_is_eol
+# note that '0' is not a valid joltage level!
+@jlt ~1 '1' &unexpected_character_in_input
+@jgt ~1 '9' &unexpected_character_in_input
+
+# we've read an ordinary digit.
+# convert '1'..'9' to 1..9 
+add ~1 -'0' input_queue_write_ptr:*0
+add input_queue_write_ptr 1 input_queue_write_ptr
+@jlt input_queue_write_ptr &input_queue_buffer_end &_rtiq_no_wrap
+@cpy &input_queue_buffer input_queue_write_ptr
+_rtiq_no_wrap:
+add input_queue_len 1 input_queue_len
+@jmp ~0
+
+_rtiq_is_eof:
+@cpy 1 got_eof
+_rtiq_is_eol:
+@cpy 1 bank_end
+@jmp ~0
+
+###############################################################################
+
+@fn 0 memset(dest, ch, count)
+
+jf count &skip
+@cpy dest rdi
+loop:
+@cpy ch rdi:*0
+add rdi 1 rdi
+add count -1 count
+jt count &loop
+skip:
+
+@endfn
+
+############################################################################
+
+# TODO: fix the compiler so I can have it compute this automatically -OR- add support for named constants
+# this is the size of the input_queue_buffer and bank_joltage_buffer arrays
+@raw buffer_size: 30
+
+@raw total_joltage: 0
+# number of characters in input queue
+@raw input_queue_len: 0
+# have we reached the end of the current bank?
+@raw bank_end: 0
+# have we reached EOF on input?
+@raw got_eof: 0
+# number of lines read (first line is line 1). used in debug modes.
+@raw bank_line_number: 0
+
+input_queue_buffer:
+@raw 0 0 0 0 0 0 0 0 0 0 0 0
+@raw 0 0 0 0 0 0 0 0 0 0 0 0
+@raw 0 0 0 0 0 0 0 0 0 0 0 0
+input_queue_buffer_end:
+
+
+@raw joltage_buffer_len: 0
+joltage_buffer:
+@raw 0 0 0 0 0 0 0 0 0 0 0 0
+@raw 0 0 0 0 0 0 0 0 0 0 0 0
+@raw 0 0 0 0 0 0 0 0 0 0 0 0
+#joltage_buffer_end:
+
+############################################################################################
+#
+#  output_integer(value)
+#
+# in ASCII mode, prints value in ASCII
+# in raw mode, outputs value directly
+# if raw mode is enabled and use_dle is on, raw values are prefixed with 0x10 (DLE)
+
+@fn 0 output_integer(value) global(print_decimal, raw_output, use_dle)
+
+jt raw_output &do_raw_output
+# this works ONLY when both routines have the same number of locals+parameters
+# UPDATE: tail-call doesn't actually work correctly because the relative base register (i.e. stack pointer) isn't adjusted correctly.
+@cpy value ~1
+@cpy &no_raw_output ~0
+@jmp &print_decimal
+
+do_raw_output:
+
+jf use_dle &no_dle
+out 16
+no_dle:
+out value
+
+no_raw_output:
+
+@endfn
+
+
+
+# print nonnegative decimal number (negative numbers will not be printed)
+# changing this to support negatives would be easy but I don't need it
+@fn 0 print_decimal(n) global(print_next_decimal_digit)
+jf n &print_zero
+@cpy n ~1
+@cpy 1 ~2
+@call &print_next_decimal_digit
+@jmp &exitfun
+print_zero: out '0'
+exitfun:
+@endfn
+
+@fn 1 print_next_decimal_digit(n, mask) local(dig, negmask)
+
+# PRECONDITIONS: n >= mask, mask is a power of 10
+# POSTCONDITIONS: upon return, ~1 has all powers of 10 greater than mask removed
+
+@cpy n ~1
+@jlt n mask &exitfn
+
+mul mask 10 ~2
+@call &print_next_decimal_digit
+@cpy ~1 n
+
+mul mask -1 negmask
+@cpy '0' dig
+compute_digit:
+@jlt n mask &done_compute_digit
+add dig 1 dig
+add n negmask n
+@jmp &compute_digit
+done_compute_digit:
+
+out dig
+
+exitfn:
+@cpy n return0
+@endfn
+
+
+# GOTCHA: return parameters and incoming arguments share stack space, so return0 and return1 are aliased with the first two arguments, respectively.
+
+#########################################################
+#
+# print_string(&str)
+
+@fn 0 print_string(string_address) local(strlen, tmpchar)
+
+@cpy string_address read_strlen
+add read_strlen:*0 0 strlen
+add 1 string_address string_reader
+message_print_loop:
+add string_reader:*0 0 tmpchar
+add string_reader 1 string_reader
+out tmpchar
+add strlen -1 strlen
+jt strlen &message_print_loop
+
+@endfn
+
+#####################################
+#
+# error messages, etc.
+
+@raw errmsg_ptr:0 strlen:0 tmpchar:0
+#die_with_message:
+# @str puts a length prefix
+@cpy errmsg_ptr read_strlen
+add read_strlen:*0 0 strlen
+add 1 errmsg_ptr errmsg_reader
+message_print_loop:
+add errmsg_reader:*0 0 tmpchar
+add errmsg_reader 1 errmsg_reader
+out tmpchar
+add strlen -1 strlen
+jt strlen &message_print_loop
+hlt
+
+# TODO: this is REALLY similar to the assertion_failed code. figure out a good way to do some code reuse.
+
+invalid_battery_count:
+@cpy &str_invalid_max_batteries ~1
+@call &print_string
+@cpy max_batteries ~1
+@call &output_integer
+out '\n'
+hlt
+
+# assertion_failed
+
+assertion_failed:
+rbo 2
+@cpy &str_assertion_failed ~1
+@call &print_string
+rbo -2
+@call &output_integer
+out '\n'
+hlt
+
+# bank_too_small
+bank_too_small:
+@cpy &str_bank_too_small_1 ~1
+@call &print_string
+@cpy input_queue_len ~1
+@call &output_integer
+@cpy &str_bank_too_small_2 ~1
+@call &print_string
+@cpy max_batteries ~1
+@call &output_integer
+out '\n'
+hlt
+
+@str str_bank_too_small_1: "Bank too small: contains "
+@str str_bank_too_small_2: " batteries, but we require "
+
+
+# unexpected_character_in_input
+
+unexpected_character_in_input:
+rbo 2
+@cpy &str_unexpected_character_in_input ~1
+@call &print_string
+rbo -2
+out '\''
+out ~1
+out '\''
+out '\n'
+hlt
+
+
+print_part1_answer:
+@cpy &str_part1_answer ~1
+@jmp &print_string
+
+print_part2_answer:
+@cpy &str_part2_answer ~1
+@jmp &print_string
+
+@fn 0 print_custom_answer() global(output_integer, print_string, max_batteries, str_custom_answer_1, str_custom_answer_2)
+
+@cpy &str_custom_answer_1 ~1
+@call &print_string
+@cpy max_batteries ~1
+@call &output_integer
+@cpy &str_custom_answer_2 ~1
+@call &print_string
+
+@endfn
+
+
+
+@str str_invalid_max_batteries: "Invalid max_batteries setting (must be 1-30): "
+@str str_assertion_failed:"Assertion failed: "
+@str str_unexpected_character_in_input:"Unexpected character in input: "
+@str str_part1_answer: "Part 1: "
+@str str_part2_answer: "Part 2: "
+@str str_custom_answer_1: "Custom battery count ("
+@str str_custom_answer_2: "): "
+
+bss:

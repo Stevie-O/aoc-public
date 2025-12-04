@@ -50,8 +50,8 @@ void Main()
 	using var tmp = stdout_file;
 
 	cpu = cpu.Patch(
-		(6, 1)   // debug mode
-		,(9, 1)  // with line numbers
+		//(6, 1)   // debug mode
+		//,(9, 1)  // with line numbers
 		);
 	//cpu = cpu.Patch( (4, 1), (6, 1995), (7, 1));
 	//	cpu = cpu.Patch( (4, 1), (6, 1995), (7, 1));
@@ -228,7 +228,7 @@ static HashSet<int> MemoryBreakPoints = new HashSet<int>()
 class Indirect<T> { public T Value; }
 static Dictionary<int, Indirect<long>> _instructionHitCount = new Dictionary<int, Indirect<long>>();
 
-IntcodeCpu RunUntilHalt(IntcodeCpu cpu, bool print_exectime_info = false, int instruction_limit = 0)
+IntcodeCpu RunUntilHalt(IntcodeCpu cpu, bool print_exectime_info = true, int instruction_limit = 0)
 {
 	long limit = long.MaxValue;// 1_000_000_000;
 	long instrcount = 0;
