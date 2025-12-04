@@ -1,0 +1,738 @@
+jf 0 &start
+@raw debug_mode: 0 raw_output: 0	 use_dle: 1
+start: rbo &grid
+# suppress compiler errors
+@reference print_error_and_die
+
+####################################################
+#
+# AOC 2025 Day 4 Intcode Solver
+#
+# Input is in ASCII (UTF-32/UCS-4), output is in ASCII (UTF-32/UCS-4).
+#
+# Features:
+#
+# - Solves both parts
+# - No built-in limits on input size -- whatever your IntcodeVM can handle
+#   Note that intcode isn't very efficient, so it needs a LOT of memory.
+#
+# All CRs ('\r' aka 13 or 0x0D) in input are **completely ignored**.
+#
+# Since the input size is indeterminate, EOF must be reported via any of these means:
+#
+# - A blank line
+# - 0x00 (ASCII NUL)
+# - 0x1A (Ctrl-Z, ASCII SB; MS-DOS or CPM end-of-file indicator)
+# - 0x04 (Ctrl-D, ASCII EOT; Default EOF replacement character on *nix-style TTY drivers)
+# - a negative number (`EOF` constant returned by `fgetc`, `getc`, or `getchar`; see `stdio.h`)
+
+##########################
+#
+# EXECUTION OPTIONS BLOCK - Memory addresses 3-6
+#
+# [3]: debug_mode. Default 0. If 1, output the number of rolls removed after each pass.
+# [4]: raw_output. Default 0. 0 = ASCII output for integers. 1 = Output all integers as raw integer values.
+# [5]: use_dle:    Default 1. 1 = Prefix all raw integer outputs with a a DLE (0x10) character.
+#                             This flag will normally have no effect unless RawOutput is enabled.
+
+
+#############################################################################
+
+# Read puzzle input
+
+@cpy -1 list_head
+
+read_next_character:
+in read_char
+@jeq read_char:0 '\r' &read_next_character
+@jeq read_char '\n' &handle_eol
+@jle read_char 4 &handle_eof
+@jeq read_char 26 &handle_eof
+@jeq read_char '.' &handle_empty_cell
+@jeq read_char '@' &handle_roll
+
+# unexpected characer in input
+@cpy &str_unexpected_character_in_input_fmt ~1
+# first placeholder: the character read
+@cpy read_char ~2
+# second placeholder: the line number
+add height 1 ~3
+# third placeholder: the column number
+add col 1 ~4
+@jmp &printf_error_and_die
+
+handle_eof:
+@cpy 1 got_eof
+
+handle_eol:
+jf is_first_line:1 &_handle_eol_not_first_line
+
+# end of first line
+@cpy 0 is_first_line
+# make sure it's not empty
+@jeq col 0 &empty_first_line
+@cpy col width
+@jmp &_handle_eol_2
+
+_handle_eol_not_first_line:
+
+# lines 2+
+# blank lines terminate the input
+@jeq col 0 &end_of_input
+
+# make sure it's the same width as all of the other lines
+@jne col width &width_mismatch
+
+_handle_eol_2:
+# increment row number
+add height 1 height
+# reset the column number
+@cpy 0 col
+
+jf got_eof &read_next_character
+@jmp &end_of_input
+
+handle_empty_cell:
+@cpy -999 ~0
+@cpy -999 ~1
+@cpy -999 ~2
+@cpy -999 ~3
+@jmp &finish_handle_grid_cell
+
+handle_roll:
+# (row, col, pass number, next_roll)
+@cpy height ~0
+@cpy col ~1
+@cpy 0 ~3
+@cpy list_head ~2
+@cpy current_cell_id list_head
+add list_count 1 list_count
+
+finish_handle_grid_cell:
+add col 1 col
+add current_cell_id 1 current_cell_id
+# advance RB by 4 words
+rbo 4
+@jmp &read_next_character
+
+
+#############################################################################
+#
+
+end_of_input:
+# calculate the last valid row/column coordinates
+add width -1 last_col
+add height -1 last_row
+mul width -1 id_offset_minus_one_row
+
+#############################################################################
+#
+# Now, run the simulation
+
+run_simulation:
+# first, check if there are no rolls 
+@jlt list_head 0 &simulation_ended
+
+add current_pass 1 current_pass
+
+# STEP 1: Search for rolls that we should remove
+
+@call &search_for_rolls_to_remove
+
+@callt debug_mode &output_list_count
+
+jf first_pass:1 &no_update_part1
+@cpy list_count part1_answer
+@cpy 0 first_pass
+no_update_part1:
+
+# if list_head < 0, nobody got scheduled for removal; we have reached a steady state.
+@jlt list_head 0 &simulation_ended
+
+
+# STEP 2: Remove those rolls
+
+# tail-call
+@cpy &run_simulation ~0
+@jmp &process_scheduled_removals
+
+#############################################################################
+#
+# output answers here
+simulation_ended:
+
+@cpy &str_part1_answer_fmt ~1
+@cpy part1_answer ~2
+@call &printf
+
+@cpy &str_part2_answer_fmt ~1
+@cpy part2_answer ~2
+@call &printf
+
+hlt
+
+#############################################################################
+
+# error paths for main read loop
+
+width_mismatch:
+@cpy &str_input_not_square_fmt ~1
+# expected width
+@cpy width ~2
+# current line number
+add height 1 ~3
+# width of current line
+@cpy col ~4
+@jmp &printf_and_die
+
+empty_first_line:
+@cpy &str_first_input_line_blank ~1
+@jmp &print_and_die
+
+#############################################################################
+#
+# count_neighbors(_unused0, count, _unused2, _unused3)
+#
+# Marks the specified cell as "possibly going to be unblocked after the list of pending removals is finished", if appropriate.
+#
+
+@fn 2 count_neighbors(_unused0, count)
+
+@reference _unused0 return1
+
+add count 1 count
+# keep going only if the new count is less than 4
+lt count 4 return0
+
+@endfn
+
+
+
+#############################################################################
+#
+# mark_cell_maybe_freed(cell_id, _unused, cell_address, cell_word2)
+#
+# Marks the specified cell as "possibly going to be unblocked after the list of pending removals is finished", if appropriate.
+#
+
+@fn 2 mark_cell_maybe_freed(cell_id, _unused, cell_address, cell_word2) global(new_list_head, current_pass)
+@reference _unused return1
+
+# if cell_word2 is -1, then the current cell has been scheduled for removal.
+# if cell_word2 is not less than current_pass, then the current cell has **already** been marked as maybe-freed during this pass.
+# in either of those cases, we *must not* touch this grid cell.
+
+@jlt cell_word2 0 &exit_fn
+@jge cell_word2 current_pass &exit_fn
+
+add cell_address 2 write_cell_word2
+add cell_address 3 write_cell_word3
+
+@cpy current_pass write_cell_word2:*0
+@cpy new_list_head write_cell_word3:*0
+@cpy cell_id new_list_head
+
+exit_fn:
+@cpy 1 return0 
+
+@endfn
+
+#############################################################################
+#
+# for_each_neighbor(cell_id, &callback, initial_accumulator)
+#
+# Invokes a callback for each neighboring cell that contains a roll.
+#
+# The callback must be declared like this:
+#	 @fn 2 my_callback(cell_id, accumulator, cell_address, cell_word2) [optional locals and globals]
+#
+# Upon return, the callback must have populated:
+#    return0 is the continuation option: 0 stops enumerating early
+#    return1 is the updated value for the accumulator
+#
+# When for_each_neighbor returns, ~1 contains the final accumulator value.
+#
+
+@fn 1 for_each_neighbor(cell_id, callback_address, initial_accumulator) local(current_accumulator, dy, dx, cell_row, cell_col, neighbor_id, neighbor_address, neighbor_word2) global(height, width, grid, assertion_failed, last_row, last_col, id_offset_minus_one_row)
+
+@cpy initial_accumulator current_accumulator
+@cpy callback_address call_arg
+
+mul cell_id 4 grid_offset
+add &grid grid_offset:0 read_cell_row
+add read_cell_row 1 read_cell_col
+@cpy read_cell_row:*0 cell_row
+@cpy read_cell_col:*0 cell_col
+
+@cpy __LINE__ ~1
+lt cell_row 0 cell_is_empty
+@callt cell_is_empty:0 &assertion_failed
+
+lt 0 cell_row not_first_row
+lt 0 cell_col not_first_col
+lt cell_row last_row not_last_row
+# logical: "not_last_col" but max_dx is always equal to not_last_col
+lt cell_col last_col max_dx
+
+# good grief intcode is a pain
+
+# okay so this is what we have:
+#  if we are on the top row, dy is 0. otherwise, dy is the number of grid cells to move up 1 row (which is negative, because "up" means a lower ID)
+#  if we are on the left column, min_dx is 0. otherwise, min_dx is 1, which is the the number of grid cells to move left 1 row
+
+mul id_offset_minus_one_row not_first_row:1 dy
+mul -1 not_first_col:1 min_dx
+mul width not_last_row:1  max_dy
+#mul  1 not_last_col:1  max_dx
+
+# for each row
+next_row:
+# reset dx to start
+@cpy min_dx:-1 dx
+
+next_col:
+# for each column
+
+# compute ID delta between neighbor and self
+add dx dy neighbor_id
+# if that's zero, then this "neighbor" *is* self; skip
+@jeq neighbor_id 0 &skip_cell
+# god this is a damn NIGHTMARE 
+mul neighbor_id 4 neighbor_address
+add neighbor_address read_cell_row neighbor_address
+# now neighbor_address is the actual memory address of the neighbor
+add neighbor_address 2 read_neighbor_word2
+@cpy read_neighbor_word2:*0 neighbor_word2
+# if neighbor_word2 is -999, this neighboring cell is empty.
+@jeq neighbor_word2 -999 &skip_cell
+
+@cpy neighbor_id ~1
+@cpy current_accumulator ~2
+@cpy neighbor_address ~3
+@cpy neighbor_word2 ~4
+# I thought I had this working. Hrm.
+#@call *callback_address
+@call call_arg:&for_each_neighbor
+@cpy ~2 current_accumulator
+jf ~1 &stop_searching
+
+skip_cell:
+add dx 4 dx
+@jle dx max_dx:4 &next_col
+# end of the current row
+
+add dy width dy
+@jle dy max_dy:0 &next_row
+# end of the last row to examine
+
+stop_searching:
+@cpy current_accumulator return0
+
+@endfn
+
+#############################################################################
+#
+# process_scheduled_removals()
+#    
+# Precondition:
+#	global 'list_head' is the start of a **non-empty** linked list of rolls that have been scheduled for removal
+#	 (this implies that 0 <= list_head < width * height, since -1 would be an empty list)
+#
+# Postcondition:
+#	global 'list_head' is the start of a (possibly empty) linked list of rolls that MIGHT be able to be removed, now that the 
+#   if the list is empty, list_head is -1.
+
+@fn 0 process_scheduled_removals() global(list_head, new_list_head, grid, current_pass, mark_cell_maybe_freed, for_each_neighbor, remove_roll_and_advance)
+
+# clear the "new list"
+@cpy -1 new_list_head
+
+process_next_cell:
+
+# find all of the neighbors that might be freed
+@cpy list_head ~1
+@cpy &mark_cell_maybe_freed ~2
+@cpy 0 ~3
+@call &for_each_neighbor
+
+@call &remove_roll_and_advance
+@jgt -1 list_head &process_next_cell
+
+@cpy new_list_head list_head
+
+@endfn
+
+
+#############################################################################
+# remove_roll_and_advance()
+#
+# Remove the next roll from the removal queue.
+#
+# Precondition:
+#	global 'list_head' contains the ID of a grid cell that contains a roll
+#	 (this implies that 0 <= list_head < width * height)
+#
+# Postcondition:
+#   the grid cell identified by the global 'list_head' (upon entry) has been marked as removed
+#   the global 'list_head' contains the ID of the next roll in the removal queue, or -1 there are no further rolls to be removed
+
+@fn 0 remove_roll_and_advance() local(current_cell_address, current_cell_id) global(list_head, grid, new_list_head)
+# save this
+@cpy list_head current_cell_id 
+# (+0 row, +1 col, +2 link info, +3 next_roll)
+mul list_head 4 current_cell_address
+add &grid current_cell_address current_cell_row
+add current_cell_row 1 current_cell_col
+add current_cell_row 2 current_cell_link_pass
+add current_cell_row 3 current_cell_next_pointer
+# fill the first three fields with -999, which marks them as absent
+@cpy -999 current_cell_row:*0
+@cpy -999 current_cell_col:*0
+@cpy -999 current_cell_link_pass:*0
+# read the 'next' pointer
+@cpy current_cell_next_pointer:*0 list_head
+@endfn
+
+#############################################################################
+#
+# output_list_count()
+#    
+
+@fn 0 output_list_count() global(output_integer, list_count)
+
+@cpy list_count ~1
+@call &output_integer
+out '\n'
+
+@endfn
+
+#############################################################################
+#
+# search_for_rolls_to_remove()
+#
+# Search for rolls that can be removed
+#
+# Precondition:
+#	global 'list_head' is the start of a **non-empty** linked list of rolls that MIGHT be able to be removed
+#	 (this implies that 0 <= list_head < width * height, since -1 would be an empty list)
+#
+# Postcondition:
+#	global 'list_head' is the start of a (possibly empty) linked list of rolls that ARE able to be removed
+#   if the list is empty, list_head is -1.
+
+@fn 0 search_for_rolls_to_remove() global(list_head, list_count, new_list_head, count_neighbors, for_each_neighbor, schedule_current_cell_for_removal)
+
+@cpy -1 new_list_head
+@cpy 0 list_count
+
+process_next_roll:
+
+@cpy list_head ~1
+@cpy &count_neighbors ~2
+@cpy 0 ~3
+@call &for_each_neighbor
+
+# we can't remove a roll if there are 4 or more rolls around us
+@jge ~1 4 &cannot_remove
+
+# schedule this roll for removal
+
+add list_count 1 list_count
+@call &schedule_current_cell_for_removal
+
+cannot_remove:
+@jgt list_head -1 &process_next_roll
+
+@cpy new_list_head list_head
+
+@endfn
+
+
+
+#############################################################################
+# schedule_current_cell_for_removal()
+#
+# Remove the current grid cell (identified by list_head) from the current linked list and add it to the "next" list (identified by new_list_head)
+#
+# Precondition:
+#	global 'list_head' contains the ID of a grid cell that contains a roll
+#	 (this implies that 0 <= list_head < width * height)
+#   and has not previously been scheduled for removal
+#
+# Postcondition:
+#   the grid cell identified by the global 'list_head' (upon entry) is now part of the linked list being built
+#   the global 'list_head' contains the ID of the next roll in the original linked list, or -1 there are no further rolls
+
+@fn 0 schedule_current_cell_for_removal() local(word_offset, current_cell_id) global(list_head, grid, new_list_head)
+# save this
+@cpy list_head current_cell_id 
+# (+0 row, +1 col, +2 link info, +3 next_roll)
+mul list_head 4 word_offset
+add word_offset 3 word_offset
+add &grid word_offset next_roll_rsi
+add &grid word_offset next_roll_rdi
+# read the current "next_roll" value pointer. this is our new list_head
+@cpy next_roll_rsi:*0 list_head
+# now place it at the front of the new list we're building
+@cpy new_list_head next_roll_rdi:*0
+# and set cell[2] to -1 to indicate that it's been scheduled for removal
+add next_roll_rdi -1 next_roll_rdi2
+@cpy -1 next_roll_rdi2:*0
+@cpy current_cell_id new_list_head
+
+@endfn
+
+
+###############################################################################
+
+# @fn 0 memset(dest, ch, count)
+
+# jf count &skip
+# @cpy dest rdi
+# loop:
+# @cpy ch rdi:*0
+# add rdi 1 rdi
+# add count -1 count
+# jt count &loop
+# skip:
+
+# @endfn
+
+
+############################################################################################
+# output.lib
+
+############################################################################################
+#
+#  output_integer(value)
+#
+# in ASCII mode, prints value in ASCII
+# in raw mode, outputs value directly
+# if raw mode is enabled and use_dle is on, raw values are prefixed with 0x10 (DLE)
+
+@fn 0 output_integer(value) global(print_decimal, raw_output, use_dle)
+
+jt raw_output &do_raw_output
+# this works ONLY when both routines have the same number of locals+parameters
+# UPDATE: tail-call doesn't actually work correctly because the relative base register (i.e. stack pointer) isn't adjusted correctly.
+@cpy value ~1
+@cpy &no_raw_output ~0
+@jmp &print_decimal
+
+do_raw_output:
+
+jf use_dle &no_dle
+out 16
+no_dle:
+out value
+
+no_raw_output:
+
+@endfn
+
+
+
+# print nonnegative decimal number (negative numbers will not be printed)
+# changing this to support negatives would be easy but I don't need it
+@fn 0 print_decimal(n) global(print_next_decimal_digit)
+jf n &print_zero
+@cpy n ~1
+@cpy 1 ~2
+@call &print_next_decimal_digit
+@jmp &exitfun
+print_zero: out '0'
+exitfun:
+@endfn
+
+@fn 1 print_next_decimal_digit(n, mask) local(dig, negmask)
+
+# PRECONDITIONS: n >= mask, mask is a power of 10
+# POSTCONDITIONS: upon return, ~1 has all powers of 10 greater than mask removed
+
+@cpy n ~1
+@jlt n mask &exitfn
+
+mul mask 10 ~2
+@call &print_next_decimal_digit
+@cpy ~1 n
+
+mul mask -1 negmask
+@cpy '0' dig
+compute_digit:
+@jlt n mask &done_compute_digit
+add dig 1 dig
+add n negmask n
+@jmp &compute_digit
+done_compute_digit:
+
+out dig
+
+exitfn:
+@cpy n return0
+@endfn
+
+
+# GOTCHA: return parameters and incoming arguments share stack space, so be careful
+
+#########################################################
+#
+# print_string(&str)
+
+@fn 0 print_string(string_address) local(strlen, tmpchar)
+
+@cpy string_address read_strlen
+add read_strlen:*0 0 strlen
+add 1 string_address string_reader
+message_print_loop:
+add string_reader:*0 0 tmpchar
+add string_reader 1 string_reader
+out tmpchar
+add strlen -1 strlen
+jt strlen &message_print_loop
+
+@endfn
+
+#########################################################
+#
+# printf(&str, ...)
+#
+# TODO: experiment with using NUL-terminated strings instead.
+
+@fn 0 printf(format_string, arg0, arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8, arg9) global(output_integer)
+
+@reference arg1 arg2 arg3 arg4 arg5 arg6 arg7 arg8 arg9
+@cpy 0 arg_shift
+@cpy format_string read_length_ptr
+@cpy read_length_ptr:*0 format_string_length
+jf format_string_length:0 &exit_fn
+add format_string 1 read_string_ptr
+
+process_next_char:
+@cpy read_string_ptr:*0 next_char
+add read_string_ptr 1 read_string_ptr
+add format_string_length -1 format_string_length
+@jeq next_char '%' &process_format
+out next_char:0
+@jmp &advance_loop
+process_format:
+@cpy read_string_ptr read_string_ptr2
+@cpy read_string_ptr2:*0 next_char
+add read_string_ptr 1 read_string_ptr
+add format_string_length -1 format_string_length
+@jeq next_char '%' &format_literal_percent
+@jeq next_char 'c' &format_char
+# assume %d by default
+
+#format_integer:
+@cpy arg0 ~1
+@call &output_integer
+rbo 1
+add arg_shift -1 arg_shift
+@jmp &advance_loop
+
+format_literal_percent:
+out '%'
+@jmp &advance_loop
+
+format_char:
+out arg0
+rbo 1
+add arg_shift -1 arg_shift
+@jmp &advance_loop
+
+advance_loop:
+jt format_string_length &process_next_char
+
+exit_fn:
+rbo arg_shift:0
+@endfn
+
+
+
+
+#####################################
+#
+# error routines. call with @jmp, not @call (well, @call is fine, but it's a waste)
+
+####################################
+#
+# assertion_failed(line number)
+#
+# Print out "Error: Assertion failed on line <line number>" and halt.
+
+assertion_failed:
+@cpy ~1 ~2
+@cpy &str_assertion_failed_fmt ~1
+@jmp &printf_error_and_die
+
+#####################################
+#
+# print_error_and_die(&str_message)
+#
+# Outputs "Error: " followed by the supplied message, then halts.
+#
+
+print_error_and_die:
+rbo 2
+@cpy &str_error ~1
+@call &print_string
+rbo -2
+# fall through to print_and_die
+
+#####################################
+#
+# print_and_die(&str_message)
+#
+# Outputs the supplied message, then halts.
+
+print_and_die:
+@call &print_string
+hlt
+
+#####################################
+#
+# printf_error_and_die(&str_format, ...)
+#
+# Outputs "Error: " followed by the formatted message, then halts.
+
+printf_error_and_die:
+# move the stack pointer far, far away so we don't trash the incoming parameters
+rbo 100
+@cpy &str_error ~1
+@call &print_string
+rbo -100
+
+# fall through to print_and_die
+
+#####################################
+#
+# printf_and_die(&str_format, ...)
+#
+# Outputs the formatted message, then halts.
+
+printf_and_die:
+@call &printf
+hlt
+
+@str str_error: "Error: "
+@str str_first_input_line_blank: "First input line is blank/empty\n"
+@str str_input_not_square_fmt: "Input is not square: first row is %d wide, but row %d is %d wide\n"
+@str str_unexpected_character_in_input_fmt: "Unexpected character '%c' in input at line %d, column %d\n"
+#@str str_assertion_failed_fmt: "Assertion failed on line %d\n"
+@str str_part1_answer_fmt: "Part 1: %d\n"
+@str str_part2_answer_fmt: "Part 2: %d\n"
+@str str_assertion_failed_fmt: "Assertion failed on line %d\n"
+
+@raw part1_answer:0 part2_answer:0
+@raw got_eof: 0
+@raw list_head: 0  list_count: 0
+@raw new_list_head: 0
+@raw current_pass: 0
+@raw last_row:0 last_col:0
+@raw height:0 width: 0 
+# (-width)
+@raw id_offset_minus_one_row: 0
+@raw col: 0
+@raw current_cell_id: 0
+
+grid:

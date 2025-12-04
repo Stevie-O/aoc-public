@@ -57,9 +57,9 @@ void Main()
 	//	cpu = cpu.Patch( (4, 1), (6, 1995), (7, 1));
 
 	var day3_input = File.ReadAllText(
-		//Path.Combine(dir, "example.txt")
+		Path.Combine(dir, "example.txt")
 		//Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments), @"LINQPad Queries\advent-of-code\2025\day03.txt")
-		Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), @"aoc-gh\2025\day03.txt")
+		//Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), @"aoc-gh\2025\day02.txt")
 		);
 	
 	//day3_input = "2444352216545122355224492942447515152244455161432542324549291845752525553324354454533245436254745426\n";
