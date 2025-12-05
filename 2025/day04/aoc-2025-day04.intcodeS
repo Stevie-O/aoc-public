@@ -135,7 +135,11 @@ run_simulation:
 
 add current_pass 1 current_pass
 
+################################################
+#
 # STEP 1: Search for rolls that we should remove
+#
+################################################
 
 @call &search_for_rolls_to_remove
 
@@ -148,6 +152,8 @@ jf first_pass:1 &no_update_part1
 @cpy list_count part1_answer
 @cpy 0 first_pass
 no_update_part1:
+
+add part2_answer list_count part2_answer
 
 # if list_head < 0, nobody got scheduled for removal; we have reached a steady state.
 @jlt list_head 0 &simulation_ended
@@ -359,7 +365,7 @@ process_next_cell:
 @call &for_each_neighbor
 
 @call &remove_roll_and_advance
-@jgt -1 list_head &process_next_cell
+@jgt list_head -1 &process_next_cell
 
 @cpy new_list_head list_head
 
@@ -376,7 +382,7 @@ process_next_cell:
 #	 (this implies that 0 <= list_head < width * height)
 #
 # Postcondition:
-#   the grid cell identified by the global 'list_head' (upon entry) has been marked as removed
+#   the grid cell identified by the global 'list_head' (upon entry) no longer contains a roll
 #   the global 'list_head' contains the ID of the next roll in the removal queue, or -1 there are no further rolls to be removed
 
 @fn 0 remove_roll_and_advance() local(current_cell_address, current_cell_id) global(list_head, grid, new_list_head)
