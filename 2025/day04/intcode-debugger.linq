@@ -11,35 +11,49 @@ const bool WRITE_EXECLOG = true;
 const bool TRACE_INPUT = true;
 const bool WRITE_OUTPUT_LOG = false;
 
+const string OUTPUT_LOG_NAME = "output.txt";
+const string INPUT_FILE_PATH =
+	"example.txt"
+	;
+const int INSTRUCTION_LIMIT =
+	1_000_000_000
+	;
+
 static string WorkDir;
 void Main()
 {
 	Util.NewProcess = true;
-	var dir = WorkDir = Path.Combine(Path.GetDirectoryName(Util.CurrentQueryPath), 
+	var dir = WorkDir = Path.Combine(Path.GetDirectoryName(Util.CurrentQueryPath),
 		"." //@"../2025/day02"
 	);
 	var code_file = File.ReadAllText(Path.Combine(dir, "a.intcode"));
-	_memoryMap = File.ReadAllLines(Path.Combine(dir, "a.map"))
-		.Where(l => l.Trim().Length > 0)
-		.Select(l =>
-		{
-			var m = Regex.Match(l, @"^(-?[0-9]+)\s+(\S+)$");
-			if (!m.Success) throw new Exception("Invalid input in mapfile: '" + l + "'");
-			return (addr: int.Parse(m.Groups[1].Value), name: m.Groups[2].Value);
-		})
-		.ToArray();
-	_addr2Name = _memoryMap.Where(x => x.address >= 0)
-		.GroupBy(x => x.address)
-		.ToDictionary(x => x.Key, x => x.First().name);
+	LoadMemoryMap(Path.Combine(dir, "a.map"));
 
 	var cpu = ParseInput(new StringReader(
 			code_file
 		));
 
+	cpu.AddBreakpoint(_name2Addr["run_simulation"], c => Year2025Day_PrintGridState(c, "run_simulation"));
+	cpu.AddBreakpoint(_name2Addr["finished_searching_for_rolls_to_remove"], c => Year2025Day_PrintGridState(c, "finished_searching_for_rolls_to_remove"));
+	cpu.AddBreakpoint(_name2Addr["search_for_rolls_to_remove"], c => { 
+		//c.SingleStepMode = true; 
+		});
+	cpu.AddBreakpoint(_name2Addr["for_each_neighbor"], _ =>
+	{
+		ExecutionLogFile.WriteLine("");
+		ExecutionLogFile.WriteLine("called: for_each_neighbor({0}, &{1}, {2})",
+			cpu.Memory[cpu.Toc + 1],
+			DescribeAddress((int)cpu.Memory[(int)cpu.Toc + 2], (int)cpu.Toc),
+			cpu.Memory[cpu.Toc + 2]
+		);
+		ExecutionLogFile.WriteLine("");
+	}
+	);
+
 	StreamWriter stdout_file;
 	if (WRITE_OUTPUT_LOG)
 	{
-		stdout_file = new StreamWriter(Path.Combine(dir, "output.txt"), false);
+		stdout_file = new StreamWriter(Path.Combine(dir, OUTPUT_LOG_NAME), false);
 		OutputTextWriter = stdout_file;
 		OutputLiterals = true;
 	}
@@ -53,16 +67,8 @@ void Main()
 		//(6, 1)   // debug mode
 		//,(9, 1)  // with line numbers
 		);
-	//cpu = cpu.Patch( (4, 1), (6, 1995), (7, 1));
-	//	cpu = cpu.Patch( (4, 1), (6, 1995), (7, 1));
 
-	var day3_input = File.ReadAllText(
-		Path.Combine(dir, "example.txt")
-		//Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments), @"LINQPad Queries\advent-of-code\2025\day03.txt")
-		//Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), @"aoc-gh\2025\day02.txt")
-		);
-	
-	//day3_input = "2444352216545122355224492942447515152244455161432542324549291845752525553324354454533245436254745426\n";
+	var day3_input = File.ReadAllText(Path.Combine(dir, INPUT_FILE_PATH));
 
 	cpu = cpu.WithIO(new IntcodeInput(day3_input),
 		PrintOutput
@@ -70,24 +76,83 @@ void Main()
 
 	try
 	{
-		//	cpu = cpu.Patch((1, 1));
-
 		if (WRITE_EXECLOG) ExecutionLogFile = new ExecutionLogFileWriter(new StreamWriter(
 				Path.Combine(Path.GetDirectoryName(Util.CurrentQueryPath), @"intcode-execlog.txt"), false, new UTF8Encoding(false))
 				);
-		//Console.WriteLine("PART 1");
-		RunUntilHalt(cpu, instruction_limit: 1_000_000_000);
-		/*
-		Console.WriteLine("-----------------");
-		cpu = cpu.Patch((1, 1));
-		Console.WriteLine("PART 2");
-		RunUntilHalt(cpu);
-		*/
+		RunUntilHalt(cpu, instruction_limit: INSTRUCTION_LIMIT);
 	}
 	finally
 	{
 		//string.Join("\r\n", Last1000Instructions).Dump();
 		ExecutionLogFile?.Dispose();
+	}
+}
+
+void LoadMemoryMap(string path)
+{
+	_memoryMap = File.ReadAllLines(path)
+		.Where(l => l.Trim().Length > 0)
+		.Select(l =>
+		{
+			var m = Regex.Match(l, @"^(-?[0-9]+)\s+(\S+)$");
+			if (!m.Success) throw new Exception("Invalid input in mapfile: '" + l + "'");
+			return (addr: int.Parse(m.Groups[1].Value), name: m.Groups[2].Value);
+		})
+		.ToArray();
+	_addr2Name = _memoryMap.Where(x => x.address >= 0)
+		.GroupBy(x => x.address)
+		.ToDictionary(x => x.Key, x => x.First().name);
+	_name2Addr = _memoryMap.Where(x => x.address >= 0).ToDictionary(x => x.name, x => x.address);
+
+}
+
+memval_t ReadVariable(IntcodeCpu cpu, string name)
+{
+	return cpu.Memory[_name2Addr[name]];
+}
+
+void Year2025Day_PrintGridState(IntcodeCpu cpu, string breakpointName)
+{
+	if (ExecutionLogFile != null)
+	{
+		ExecutionLogFile.WriteLine("");
+		ExecutionLogFile.WriteLine("{0} breakpoint hit", breakpointName);
+		ExecutionLogFile.WriteLine("");
+	}
+	int width = (int)ReadVariable(cpu, "width");
+	int height = (int)ReadVariable(cpu, "height");
+	int grid_address = (int)_name2Addr["grid"];
+
+	Console.WriteLine("{0} hit", breakpointName);
+	Console.WriteLine();
+	Console.WriteLine("list_head = {0}", ReadVariable(cpu, "list_head"));
+	Console.WriteLine("width = {0}, height = {1}", width, height);
+	Console.WriteLine();
+	var sb = new StringBuilder();
+	try
+	{
+		var read_ptr = grid_address;
+		var cell_id = 0;
+		for (int row = 0; row < height; row++)
+		{
+			sb.AppendFormat("[{0,6}] ", cell_id);
+			for (int col = 0; col < width; col++)
+			{
+				sb.Append("{ ");
+				sb.AppendFormat("{0,4}", cpu.Memory[read_ptr++]);
+				sb.AppendFormat("{0,4}", cpu.Memory[read_ptr++]);
+				sb.AppendFormat("{0,4}", cpu.Memory[read_ptr++]);
+				sb.AppendFormat("{0,4}", cpu.Memory[read_ptr++]);
+				sb.Append("} ");
+				cell_id++;
+			}
+			Console.WriteLine(sb.ToString());
+			sb.Clear();
+		}
+	}
+	finally
+	{
+		Console.WriteLine(sb.ToString());
 	}
 }
 
@@ -140,6 +205,7 @@ static IComparer<(int address, string name)> AddressComparer = DelegateComparer.
 
 static (int address, string name)[] _memoryMap;
 static Dictionary<int, string> _addr2Name;
+static Dictionary<string, int> _name2Addr;
 
 static string DescribeAddress(int address, int rb)
 {
@@ -214,13 +280,6 @@ void PrintOutput(memval_t value)
 	else OutputTextWriter.Write((char)value);
 }
 
-static HashSet<int> Breakpoints = new HashSet<int>()
-{
-	//528, 798,
-	//93, 
-	//147,
-};
-
 static HashSet<int> MemoryBreakPoints = new HashSet<int>()
 {
 	//2166,
@@ -240,12 +299,13 @@ IntcodeCpu RunUntilHalt(IntcodeCpu cpu, bool print_exectime_info = true, int ins
 			holder = _instructionHitCount[cpu.Pc] = new();
 		holder.Value++;
 
-		if (Breakpoints.Contains(cpu.Pc))
+		/*if (Breakpoints.Contains(cpu.Pc))
 		{
 			ExecutionLogFile?.Flush();
 			Console.WriteLine("Breakpoint at PC={0}", cpu.Pc);
 			Util.Break();
 		}
+		*/
 		if (instruction_limit > 0 && --instruction_limit == 0)
 		{
 			break;
@@ -253,15 +313,14 @@ IntcodeCpu RunUntilHalt(IntcodeCpu cpu, bool print_exectime_info = true, int ins
 		if (--limit <= 0) throw new Exception("cpu rlimit exceeded");
 		if (ExecutionLogFile != null && _addr2Name.TryGetValue(cpu.Pc, out var name))
 			ExecutionLogFile.WriteLine("## {0}", name);
-		//cpu.Dump();
 		cpu = cpu.ExecuteInstruction();
 		instrcount++;
-		//cpu.Dump();
 	}
 	if (print_exectime_info)
 	{
 		instrcount.Dump("Number of instructions executed");
-		_instructionHitCount.OrderBy(x => x.Key).Select(x => new { pc = x.Key, pc_desc = DescribeAddress(x.Key, cpu.Toc), count = x.Value.Value }).Dump("PC flamegraph");
+		_instructionHitCount.OrderBy(x => x.Key).Select(x => new { pc = x.Key, pc_desc = DescribeAddress(x.Key, cpu.Toc), count = x.Value.Value })
+			.Dump("PC flamegraph", collapseTo: 0);
 	}
 	return cpu;
 }
@@ -309,9 +368,28 @@ class IntcodeCpu
 
 	const int OP_HALT = 99;
 
+	public bool SingleStepMode { get; set; }
+
 	public IntcodeCpu Clone()
 	{
 		return new IntcodeCpu((memval_t[])(Memory.Clone()), Input, Output, Pc, Toc);
+	}
+
+	Dictionary<int, Action<IntcodeCpu>> _breakpoints = new Dictionary<int, System.Action<UserQuery.IntcodeCpu>>();
+	public void AddBreakpoint(int address, Action<IntcodeCpu> callback)
+	{
+		_breakpoints.Add(address, callback);
+	}
+
+	void TriggerBreakpoints()
+	{
+		if (_breakpoints.TryGetValue(Pc, out var callback))
+			callback(this);
+		if (SingleStepMode)
+		{
+			ExecutionLogFile?.Flush();
+			Util.Break();
+		}
 	}
 
 	public memval_t[] Memory { get; private set; }
@@ -664,6 +742,8 @@ class IntcodeCpu
 
 	public IntcodeCpu ExecuteInstruction()
 	{
+		TriggerBreakpoints();
+
 		var ins_arg0 = Memory[Pc];
 		var trace = new ExecutionTrace();
 		var (directMask, ins) = DecodeArg0(ins_arg0);
@@ -688,9 +768,6 @@ class IntcodeCpu
 	}
 }
 
-
-// Define other methods and classes here
-
 IntcodeCpu ParseInput(TextReader tr)
 {
 	using (tr)
@@ -706,41 +783,5 @@ IntcodeCpu ParseInput(TextReader tr)
 
 
 		return new IntcodeCpu(memory, IntcodeInput.Empty, null, 0, 0);
-	}
-}
-
-
-StreamReader OpenDataFile()
-{
-	var queryName = Util.CurrentQueryPath;
-	string dayNumber = Regex.Match(queryName, @"(day\d+)").Groups[1].Value;
-	var dir = Path.GetDirectoryName(queryName);
-	var data_file = Path.Combine(dir, dayNumber + ".txt");
-	return new StreamReader(data_file);
-}
-
-
-const string EXAMPLE_1 =
-	@"109,1,204,-1,1001,100,1,100,1008,100,16,101,1006,101,0,99";
-const string EXAMPLE_2 =
-	@"1102,34915192,34915192,7,4,7,99,0";
-const string EXAMPLE_3 =
-	@"104,1125899906842624,99";
-
-IEnumerable<TextReader> GetSampleInputs()
-{
-	foreach (var input in new[] {
-					EXAMPLE_1,
-					EXAMPLE_2,
-					EXAMPLE_3,
-				})
-		yield return new StringReader(input);
-}
-
-IEnumerable<TextReader> GetPuzzleInputs()
-{
-	using (var tr = OpenDataFile())
-	{
-		yield return tr;
 	}
 }

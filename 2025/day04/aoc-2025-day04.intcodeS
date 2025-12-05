@@ -103,8 +103,8 @@ handle_roll:
 # (row, col, pass number, next_roll)
 @cpy height ~0
 @cpy col ~1
-@cpy 0 ~3
-@cpy list_head ~2
+@cpy 0 ~2
+@cpy list_head ~3
 @cpy current_cell_id list_head
 add list_count 1 list_count
 
@@ -138,6 +138,9 @@ add current_pass 1 current_pass
 # STEP 1: Search for rolls that we should remove
 
 @call &search_for_rolls_to_remove
+
+finished_searching_for_rolls_to_remove:
+@reference finished_searching_for_rolls_to_remove
 
 @callt debug_mode &output_list_count
 
