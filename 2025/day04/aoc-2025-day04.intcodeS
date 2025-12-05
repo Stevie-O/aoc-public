@@ -473,7 +473,7 @@ after_call:
 # grid + 4 * list_head + 3
 
 mul list_head 4 read_ptr
-add &grid list_head read_ptr
+add &grid read_ptr read_ptr
 add read_ptr 3 read_ptr
 @cpy read_ptr:*0 list_head
 

@@ -44,9 +44,9 @@ void Main()
 	});
 	cpu.AddBreakpoint("fn_schedule_current_cell_for_removal__debug_hook", c => Year2025Day_PrintGridState(c, "schedule_current_cell_for_removal"));
 	cpu.AddBreakpoint("finished_searching_for_rolls_to_remove", c => Year2025Day_PrintGridState(c, "finished_searching_for_rolls_to_remove"));
-	cpu.AddBreakpoint("search_for_rolls_to_remove", c =>
+	cpu.AddBreakpoint("pop_list_head", c =>
 	{
-		//c.SingleStepMode = true; 
+		c.SingleStepMode = true; 
 	});
 	cpu.AddBreakpoint("for_each_neighbor", _ =>
 	{
@@ -65,7 +65,8 @@ void Main()
 	);
 	cpu.AddBreakpoint("count_neighbors", c =>
 	{
-		Console.WriteLine("visiting neighbor {0} / count = {1}", cpu.Memory[cpu.Toc + 1], cpu.Memory[cpu.Toc + 2]);
+		using var bpout = new BreakpointOutput();
+		bpout	.WriteLine("visiting neighbor {0} / count = {1}", cpu.Memory[cpu.Toc + 1], cpu.Memory[cpu.Toc + 2]);
 	});
 
 
