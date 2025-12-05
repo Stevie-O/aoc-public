@@ -309,7 +309,7 @@ add neighbor_address 2 read_neighbor_word2
 # if neighbor_word2 is -999, this neighboring cell is empty.
 @jeq neighbor_word2 -999 &skip_cell
 
-@cpy neighbor_id ~1
+add neighbor_id cell_id ~1
 @cpy current_accumulator ~2
 @cpy neighbor_address ~3
 @cpy neighbor_word2 ~4

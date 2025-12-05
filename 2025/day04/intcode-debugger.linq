@@ -37,7 +37,8 @@ void Main()
 	cpu.AddBreakpoint("run_simulation", c => Year2025Day_PrintGridState(c, "run_simulation"));
 	cpu.AddBreakpoint("schedule_current_cell_for_removal", _ =>
 	{
-		Console.WriteLine("scheduling cell {0} for removal",
+		using var bpout = new BreakpointOutput();
+		bpout.WriteLine("scheduling cell {0} for removal",
 			ReadVariable(cpu, "list_head")
 			);
 	});
@@ -49,7 +50,9 @@ void Main()
 	});
 	cpu.AddBreakpoint("for_each_neighbor", _ =>
 	{
-		Console.WriteLine("Checking neighbors of {0}", cpu.Memory[(int)cpu.Toc + 1]);
+		using var bpout = new BreakpointOutput();
+		bpout.WriteLine("Checking neighbors of {0}", cpu.Memory[(int)cpu.Toc + 1]);
+		/*
 		ExecutionLogFile.WriteLine("");
 		ExecutionLogFile.WriteLine("called: for_each_neighbor({0}, {1}, {2})",
 			cpu.Memory[cpu.Toc + 1],
@@ -57,6 +60,7 @@ void Main()
 			cpu.Memory[cpu.Toc + 2]
 		);
 		ExecutionLogFile.WriteLine("");
+		*/
 	}
 	);
 	cpu.AddBreakpoint("count_neighbors", c =>
@@ -100,6 +104,22 @@ void Main()
 	{
 		//string.Join("\r\n", Last1000Instructions).Dump();
 		ExecutionLogFile?.Dispose();
+	}
+}
+
+class BreakpointOutput : IDisposable
+{
+	public BreakpointOutput()
+	{
+		ExecutionLogFile?.WriteLine("");
+	}
+	
+	public void WriteLine(string message) { Console.WriteLine(message); ExecutionLogFile?.WriteLine(message); }
+	public void WriteLine(string format, params object[] args) { Console.WriteLine(format, args); ExecutionLogFile?.WriteLine(format, args); }
+
+	public void Dispose()
+	{
+		ExecutionLogFile?.WriteLine("");
 	}
 }
 
