@@ -16,7 +16,8 @@ const string INPUT_FILE_PATH =
 	"example.txt"
 	;
 const int INSTRUCTION_LIMIT =
-	1_000_000_000
+	//1_000_000_000
+	10_000
 	;
 
 static string WorkDir;
@@ -33,22 +34,36 @@ void Main()
 			code_file
 		));
 
-	cpu.AddBreakpoint(_name2Addr["run_simulation"], c => Year2025Day_PrintGridState(c, "run_simulation"));
-	cpu.AddBreakpoint(_name2Addr["finished_searching_for_rolls_to_remove"], c => Year2025Day_PrintGridState(c, "finished_searching_for_rolls_to_remove"));
-	cpu.AddBreakpoint(_name2Addr["search_for_rolls_to_remove"], c => { 
-		//c.SingleStepMode = true; 
-		});
-	cpu.AddBreakpoint(_name2Addr["for_each_neighbor"], _ =>
+	cpu.AddBreakpoint("run_simulation", c => Year2025Day_PrintGridState(c, "run_simulation"));
+	cpu.AddBreakpoint("schedule_current_cell_for_removal", _ =>
 	{
+		Console.WriteLine("scheduling cell {0} for removal",
+			ReadVariable(cpu, "list_head")
+			);
+	});
+	cpu.AddBreakpoint("fn_schedule_current_cell_for_removal__debug_hook", c => Year2025Day_PrintGridState(c, "schedule_current_cell_for_removal"));
+	cpu.AddBreakpoint("finished_searching_for_rolls_to_remove", c => Year2025Day_PrintGridState(c, "finished_searching_for_rolls_to_remove"));
+	cpu.AddBreakpoint("search_for_rolls_to_remove", c =>
+	{
+		//c.SingleStepMode = true; 
+	});
+	cpu.AddBreakpoint("for_each_neighbor", _ =>
+	{
+		Console.WriteLine("Checking neighbors of {0}", cpu.Memory[(int)cpu.Toc + 1]);
 		ExecutionLogFile.WriteLine("");
-		ExecutionLogFile.WriteLine("called: for_each_neighbor({0}, &{1}, {2})",
+		ExecutionLogFile.WriteLine("called: for_each_neighbor({0}, {1}, {2})",
 			cpu.Memory[cpu.Toc + 1],
-			DescribeAddress((int)cpu.Memory[(int)cpu.Toc + 2], (int)cpu.Toc),
+			DescribeAddress((int)cpu.Memory[cpu.Toc + 2], cpu.Toc),
 			cpu.Memory[cpu.Toc + 2]
 		);
 		ExecutionLogFile.WriteLine("");
 	}
 	);
+	cpu.AddBreakpoint("count_neighbors", c =>
+	{
+		Console.WriteLine("visiting neighbor {0} / count = {1}", cpu.Memory[cpu.Toc + 1], cpu.Memory[cpu.Toc + 2]);
+	});
+
 
 	StreamWriter stdout_file;
 	if (WRITE_OUTPUT_LOG)
@@ -126,6 +141,7 @@ void Year2025Day_PrintGridState(IntcodeCpu cpu, string breakpointName)
 	Console.WriteLine("{0} hit", breakpointName);
 	Console.WriteLine();
 	Console.WriteLine("list_head = {0}", ReadVariable(cpu, "list_head"));
+	Console.WriteLine("new_list_head = {0}", ReadVariable(cpu, "new_list_head"));
 	Console.WriteLine("width = {0}, height = {1}", width, height);
 	Console.WriteLine();
 	var sb = new StringBuilder();
@@ -376,6 +392,9 @@ class IntcodeCpu
 	}
 
 	Dictionary<int, Action<IntcodeCpu>> _breakpoints = new Dictionary<int, System.Action<UserQuery.IntcodeCpu>>();
+	public void AddBreakpoint(string name, Action<IntcodeCpu> callback)
+		=> AddBreakpoint(_name2Addr[name], callback);
+
 	public void AddBreakpoint(int address, Action<IntcodeCpu> callback)
 	{
 		_breakpoints.Add(address, callback);

@@ -320,8 +320,8 @@ add neighbor_address 2 read_neighbor_word2
 jf ~1 &stop_searching
 
 skip_cell:
-add dx 4 dx
-@jle dx max_dx:4 &next_col
+add dx 1 dx
+@jle dx max_dx:1 &next_col
 # end of the current row
 
 add dy width dy
@@ -423,7 +423,7 @@ out '\n'
 #	global 'list_head' is the start of a (possibly empty) linked list of rolls that ARE able to be removed
 #   if the list is empty, list_head is -1.
 
-@fn 0 search_for_rolls_to_remove() global(list_head, list_count, new_list_head, count_neighbors, for_each_neighbor, schedule_current_cell_for_removal)
+@fn 0 search_for_rolls_to_remove() global(list_head, list_count, new_list_head, count_neighbors, for_each_neighbor, schedule_current_cell_for_removal, pop_list_head)
 
 @cpy -1 new_list_head
 @cpy 0 list_count
@@ -436,23 +436,51 @@ process_next_roll:
 @call &for_each_neighbor
 
 # we can't remove a roll if there are 4 or more rolls around us
-@jge ~1 4 &cannot_remove
+lt ~1 4 may_remove
 
 # schedule this roll for removal
 
-add list_count 1 list_count
-@call &schedule_current_cell_for_removal
+# TODO: update the compiler to add a macro for this behavior
+@cpy &after_call ~0
+jt may_remove:0 &schedule_current_cell_for_removal
+jf may_remove   &pop_list_head
 
-cannot_remove:
+after_call:
 @jgt list_head -1 &process_next_roll
 
 @cpy new_list_head list_head
 
 @endfn
 
+#############################################################################
+#
+# pop_list_head()
+#
+# aka "cdr"
+#
+# Removes the head helement of the linked list.
+#
+# Precondition:
+#	global 'list_head' contains the ID of a grid cell that contains a roll
+#	 (this implies that 0 <= list_head < width * height)
+#   (and is not scheduled for removal)
+#
+# Postcondition:
+#   the global 'list_head' contains the ID of the next roll in the original linked list, or -1 there are no further rolls.
 
+@fn 0 pop_list_head() global(grid, list_head)
+
+# grid + 4 * list_head + 3
+
+mul list_head 4 read_ptr
+add &grid list_head read_ptr
+add read_ptr 3 read_ptr
+@cpy read_ptr:*0 list_head
+
+@endfn
 
 #############################################################################
+#
 # schedule_current_cell_for_removal()
 #
 # Remove the current grid cell (identified by list_head) from the current linked list and add it to the "next" list (identified by new_list_head)
@@ -466,7 +494,9 @@ cannot_remove:
 #   the grid cell identified by the global 'list_head' (upon entry) is now part of the linked list being built
 #   the global 'list_head' contains the ID of the next roll in the original linked list, or -1 there are no further rolls
 
-@fn 0 schedule_current_cell_for_removal() local(word_offset, current_cell_id) global(list_head, grid, new_list_head)
+@fn 0 schedule_current_cell_for_removal() local(word_offset, current_cell_id) global(list_head, grid, new_list_head, list_count)
+
+add list_count 1 list_count
 # save this
 @cpy list_head current_cell_id 
 # (+0 row, +1 col, +2 link info, +3 next_roll)
@@ -482,6 +512,9 @@ add &grid word_offset next_roll_rdi
 add next_roll_rdi -1 next_roll_rdi2
 @cpy -1 next_roll_rdi2:*0
 @cpy current_cell_id new_list_head
+
+debug_hook:
+@reference debug_hook
 
 @endfn
 
