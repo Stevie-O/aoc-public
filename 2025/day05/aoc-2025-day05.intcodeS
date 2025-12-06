@@ -1,5 +1,5 @@
 jf 0 &start
-@raw raw_output: 0	 use_dle: 1  debug_range_build: 1 print_fresh_ids: 1 debug_find_range_index: 1
+@raw raw_output: 0	 use_dle: 1  debug_range_build: 0 print_fresh_ids: 0 debug_find_range_index: 0
 start: rbo &ranges
 # add some space for the ranges array, and a buffer just in case
 rbo 40
@@ -89,7 +89,8 @@ ranges_finished:
 jf input_line &first_input_line_blank
 
 @call &find_part2_answer
-@jmp &ingredients_finished
+@cpy &str_fresh_ids ~1
+@callt print_fresh_ids &print_string
 
 read_ingredient_id:
 
@@ -120,13 +121,35 @@ ingredients_finished:
 
 hlt
 
-check_ingredient_fresh:
-hlt
 
 first_input_line_blank:
 @cpy &str_first_input_line_blank ~1
 @jmp &print_error_and_die
 
+#############################################################################
+#
+# check_ingredient_fresh(id)
+
+@fn 0 check_ingredient_fresh(id) global(print_fresh_ids, output_integer, part1_answer, find_range_index)
+
+@cpy id ~1 
+@call &find_range_index
+# if ~5 is false, id is greater than any fresh ID
+jf ~5 &not_fresh
+# if id < ~3, then id is not fresh
+@jlt id ~3 &not_fresh
+
+#add part1_answer id part1_answer
+# part1 is the COUNT, not the SM
+add part1_answer 1 part1_answer
+jf print_fresh_ids &not_fresh
+
+@cpy id ~1
+@call &output_integer
+out '\n'
+
+not_fresh:
+@endfn
 
 #############################################################################
 #
@@ -887,6 +910,8 @@ hlt
 @str str_assertion_failed_fmt: "Assertion failed on line %d\n"
 @str str_part1_answer_fmt: "Part 1: %d\n"
 @str str_part2_answer_fmt: "Part 2: %d\n"
+
+@str str_fresh_ids: "Fresh IDs:\n\n"
 
 ###################################################################################
 
