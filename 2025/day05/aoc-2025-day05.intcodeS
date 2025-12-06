@@ -438,7 +438,7 @@ do_move:
 @cpy range_end   write_dest_end_ptr:*0
 
 add array_index 1 array_index
-@jeq array_index ranges_len &exit_fn
+@jgt array_index ranges_len &exit_fn
 
 @cpy next_range_start range_start
 @cpy next_range_end range_end
@@ -450,7 +450,7 @@ add write_dest_end_ptr   2 write_dest_end_ptr
 add read_next_start_ptr  2 read_next_start_ptr 
 add read_next_end_ptr    2 read_next_end_ptr 
 
-@jlt array_index ranges_len &do_move
+@jmp &do_move
 
 exit_fn:
 add ranges_len change_in_size ranges_len

@@ -7,7 +7,7 @@
   <Namespace>System.Globalization</Namespace>
 </Query>
 
-const bool WRITE_EXECLOG = true;
+const bool WRITE_EXECLOG = false;
 const bool TRACE_INPUT = true;
 const bool WRITE_OUTPUT_LOG = false;
 
@@ -18,7 +18,7 @@ const string INPUT_FILE_PATH =
 	;
 const int INSTRUCTION_LIMIT =
 	//1_000_000_000
-	50_000
+	50_000_000
 	;
 
 static string WorkDir;
