@@ -7,17 +7,18 @@
   <Namespace>System.Globalization</Namespace>
 </Query>
 
-const bool WRITE_EXECLOG = true;
+const bool WRITE_EXECLOG = false;
 const bool TRACE_INPUT = true;
 const bool WRITE_OUTPUT_LOG = false;
 
 const string OUTPUT_LOG_NAME = "output.txt";
 const string INPUT_FILE_PATH =
-	"example.txt"
+//	"example.txt"
+	"../../puzzle_inputs/2025-04.txt"
 	;
 const int INSTRUCTION_LIMIT =
-	//1_000_000_000
-	10_000
+	1_000_000_000
+	//50_000
 	;
 
 static string WorkDir;
@@ -33,7 +34,7 @@ void Main()
 	var cpu = ParseInput(new StringReader(
 			code_file
 		));
-
+/*
 	cpu.AddBreakpoint("run_simulation", c => Year2025Day_PrintGridState(c, "run_simulation"));
 	cpu.AddBreakpoint("schedule_current_cell_for_removal", _ =>
 	{
@@ -46,21 +47,12 @@ void Main()
 	cpu.AddBreakpoint("finished_searching_for_rolls_to_remove", c => Year2025Day_PrintGridState(c, "finished_searching_for_rolls_to_remove"));
 	cpu.AddBreakpoint("pop_list_head", c =>
 	{
-		c.SingleStepMode = true; 
+		//c.SingleStepMode = true; 
 	});
 	cpu.AddBreakpoint("for_each_neighbor", _ =>
 	{
 		using var bpout = new BreakpointOutput();
 		bpout.WriteLine("Checking neighbors of {0}", cpu.Memory[(int)cpu.Toc + 1]);
-		/*
-		ExecutionLogFile.WriteLine("");
-		ExecutionLogFile.WriteLine("called: for_each_neighbor({0}, {1}, {2})",
-			cpu.Memory[cpu.Toc + 1],
-			DescribeAddress((int)cpu.Memory[cpu.Toc + 2], cpu.Toc),
-			cpu.Memory[cpu.Toc + 2]
-		);
-		ExecutionLogFile.WriteLine("");
-		*/
 	}
 	);
 	cpu.AddBreakpoint("count_neighbors", c =>
@@ -68,7 +60,13 @@ void Main()
 		using var bpout = new BreakpointOutput();
 		bpout	.WriteLine("visiting neighbor {0} / count = {1}", cpu.Memory[cpu.Toc + 1], cpu.Memory[cpu.Toc + 2]);
 	});
-
+	cpu.AddBreakpoint("mark_cell_maybe_freed", c =>
+	{
+		using var bpout = new BreakpointOutput();
+		var address = (int) cpu.Memory[cpu.Toc + 3];
+		bpout.WriteLine("trying to mark neighbor {0} as maybe-freed ({1} / {2})", cpu.Memory[cpu.Toc + 1], cpu.Memory[cpu.Toc + 4], cpu.Memory[address + 2]);
+	});
+*/
 
 	StreamWriter stdout_file;
 	if (WRITE_OUTPUT_LOG)
@@ -161,7 +159,9 @@ void Year2025Day_PrintGridState(IntcodeCpu cpu, string breakpointName)
 
 	Console.WriteLine("{0} hit", breakpointName);
 	Console.WriteLine();
+	Console.WriteLine("current_pass = {0}", ReadVariable(cpu, "current_pass"));
 	Console.WriteLine("list_head = {0}", ReadVariable(cpu, "list_head"));
+	Console.WriteLine("list_count = {0}", ReadVariable(cpu, "list_count"));
 	Console.WriteLine("new_list_head = {0}", ReadVariable(cpu, "new_list_head"));
 	Console.WriteLine("width = {0}, height = {1}", width, height);
 	Console.WriteLine();

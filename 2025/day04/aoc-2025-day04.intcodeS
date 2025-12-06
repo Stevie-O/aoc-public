@@ -143,9 +143,6 @@ add current_pass 1 current_pass
 
 @call &search_for_rolls_to_remove
 
-finished_searching_for_rolls_to_remove:
-@reference finished_searching_for_rolls_to_remove
-
 @callt debug_mode &output_list_count
 
 jf first_pass:1 &no_update_part1
@@ -518,9 +515,6 @@ add &grid word_offset next_roll_rdi
 add next_roll_rdi -1 next_roll_rdi2
 @cpy -1 next_roll_rdi2:*0
 @cpy current_cell_id new_list_head
-
-debug_hook:
-@reference debug_hook
 
 @endfn
 
