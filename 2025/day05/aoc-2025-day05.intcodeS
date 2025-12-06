@@ -73,7 +73,7 @@ add ~1 1 range_end
 @jlt ranges_len ranges_capacity &no_rbo_needed
 # we're running out of room. add more space
 rbo 32
-add ranges_capacity 32 ranges_capacity
+add ranges_capacity 16 ranges_capacity
 no_rbo_needed:
 
 @callt debug_range_build &print_range_table
@@ -86,6 +86,9 @@ no_rbo_needed:
 
 ranges_finished:
 jf input_line &first_input_line_blank
+
+#@call &find_part2_answer
+#@jmp &ingredients_finished
 
 read_ingredient_id:
 
@@ -178,20 +181,25 @@ exit_fn:
 # ~5 = 1 if ~1 is a valid range. 0 if "one past the end"
 # ~6 = range end of ranges[index-1], or -1 if index==0
 
-@fn 6 find_range_index(id_arg) local(id, found_index, found_start, found_end) global(ranges_len, ranges)
+@fn 6 find_range_index(id_arg) local(dummy1, dummy2, dummy3, dummy4, dummy5, dummy6, id, found_index, found_start, found_end, prev_end) global(ranges_len, ranges)
 
-@cpy id_arg id
-jt ranges_len &actually_search
-@cpy id found_start
-@cpy id found_end
-@cpy ranges_len found_index
+# return values are aliased with incoming parameters
+# when the number of return values is less than the number of incoming parameters, the excess are aliased with locals
+# this causes problems when trying to populate the return parameters
+@reference dummy1 dummy2 dummy3 dummy4 dummy5 dummy6
+
+# init prev_end
+@cpy -1 prev_end
+# init found_index_address
 @cpy &ranges found_index_address
-@jmp &exit_fn
-
-actually_search:
-# prep search
+# save id_arg to a local so it doesn't get overwritten
+@cpy id_arg id
+# init found_index
 @cpy 0 found_index
-add &ranges 0 found_index_address
+# if there are no ranges in the list, we're already at the end
+jf ranges_len &reached_end
+
+# prep search
 add found_index_address 1 read_found_end_ptr
 
 search_next:
@@ -202,22 +210,24 @@ search_next:
 # this requires id < found_end
 @jlt id found_end &exit_fn
 
-add found_index 1 found_index
 add found_index_address 2 found_index_address
 add read_found_end_ptr 2 read_found_end_ptr
-@jmp &search_next
+add found_index 1 found_index
+@cpy found_end prev_end
+@jne found_index ranges_len &search_next
+
+reached_end:
+@cpy id found_start
+@cpy id found_end
 
 exit_fn:
-@cpy -1 return5
-jf found_index &is_first
-add found_index_address -1 read_prev_ptr
-@cpy read_prev_ptr:*0 return5
-is_first:
 @cpy found_index return0
 @cpy found_index_address return1
 @cpy found_start return2
-@cpy found_start return3
+@cpy found_end   return3
 lt found_index ranges_len return4
+@cpy prev_end return5
+
 @endfn
 
 #############################################################################
