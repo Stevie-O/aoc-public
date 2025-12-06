@@ -72,9 +72,11 @@ jf status &exit_fn
 got_newline:
 # if newline_mode is 0, treat it as an invalid character
 jf newline_mode &report_unexpected_character
+jf status &no_adjust_status
 eq ~3 0 actually_eof
 add status actually_eof:0 status
 mul status -1 status
+no_adjust_status:
 # if newline_mode is -1, it acts like expected_terminator
 @jlt newline_mode 0 &got_expected_terminator
 # otherwise, newline_mode is 1, and it's only valid when we didn't read any digits

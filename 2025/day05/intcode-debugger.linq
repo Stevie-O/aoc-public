@@ -7,13 +7,18 @@
   <Namespace>System.Globalization</Namespace>
 </Query>
 
-const bool WRITE_EXECLOG = false;
+const bool WRITE_EXECLOG = true;
 const bool TRACE_INPUT = true;
 const bool WRITE_OUTPUT_LOG = false;
 
 const string OUTPUT_LOG_NAME = "output.txt";
+const string INPUT_FILE_PATH =
+	"example.txt"
+//	"../../puzzle_inputs/2025-05.txt"
+	;
 const int INSTRUCTION_LIMIT =
-	10_000
+	//1_000_000_000
+	50_000
 	;
 
 static string WorkDir;
@@ -21,101 +26,84 @@ void Main()
 {
 	Util.NewProcess = true;
 	var dir = WorkDir = Path.Combine(Path.GetDirectoryName(Util.CurrentQueryPath),
-		"." //@"../2025/day02"
+		"."
 	);
-	var code_file = File.ReadAllText(Path.Combine(dir, "read-integer-tests.intcode"));
-	LoadMemoryMap(Path.Combine(dir, "read-integer-tests.map"));
+	var code_file = File.ReadAllText(Path.Combine(dir, "a.intcode"));
+	LoadMemoryMap(Path.Combine(dir, "a.map"));
 
-	string[] all_strings = {
-			",", "\n", "",
-			"0,", "0\n", "0",
-			"1,", "1\n", "1",
-			};
-	char[] all_terminators = { ',', '\n' };
-	int[] all_empty_modes = { 0, 1 };
-	int[] all_newline_modes = { 0, 1, -1 };
-	int[] all_eof_modes = { 0, 1, -1 };
-
-
-	var test_results =
-		(from expected_terminator in all_terminators
-		 from empty_mode in all_empty_modes
-		 from newline_mode in all_newline_modes
-		 from eof_mode in all_eof_modes
-		 from input_text in all_strings
-		 select new { input_text, expected_terminator, empty_mode, newline_mode, eof_mode }
-		)
-		.Select(test_case =>
+	var cpu = ParseInput(new StringReader(
+			code_file
+		));
+/*
+	cpu.AddBreakpoint("run_simulation", c => Year2025Day_PrintGridState(c, "run_simulation"));
+	cpu.AddBreakpoint("schedule_current_cell_for_removal", _ =>
 	{
-
-		var output_data = new List<memval_t>();
-		var input = new IntcodeInputBuilder()
-					.WriteDirect(test_case.expected_terminator)
-					.WriteDirect(test_case.empty_mode)
-					.WriteDirect(test_case.newline_mode)
-					.WriteDirect(test_case.eof_mode)
-					.WriteString(test_case.input_text)
-					.Build();
-
-		var cpu = ParseInput(new StringReader(code_file));
-		cpu = cpu.WithIO(input, w => output_data.Add(w));
-
-		StreamWriter stdout_file;
-		if (WRITE_OUTPUT_LOG)
-		{
-			stdout_file = new StreamWriter(Path.Combine(dir, OUTPUT_LOG_NAME), false);
-			OutputTextWriter = stdout_file;
-			OutputLiterals = true;
-		}
-		else
-		{
-			stdout_file = null;
-		}
-		using var tmp = stdout_file;
-
-		try
-		{
-			if (WRITE_EXECLOG) ExecutionLogFile = new ExecutionLogFileWriter(new StreamWriter(
-					Path.Combine(Path.GetDirectoryName(Util.CurrentQueryPath), @"intcode-execlog.txt"), false, new UTF8Encoding(false))
-					);
-			RunUntilHalt(cpu, instruction_limit: INSTRUCTION_LIMIT, print_exectime_info: false);
-		}
-		finally
-		{
-			//string.Join("\r\n", Last1000Instructions).Dump();
-			ExecutionLogFile?.Dispose();
-		}
-
-		string outcome;
-		if (output_data[0] == 0)
-			outcome = string.Format("~1 = {0}, ~2 = {1}", output_data[1], output_data[2]);
-		else if (output_data[0] == 1)
-			outcome = string.Format("Unexpected character ({0})", output_data[1]);
-		else if (output_data[0] == 2)
-			outcome = "Unexpected EOF";
-		else
-			outcome = "??? " + string.Join(" ", output_data);
-
-		string expected_terminator_str = (test_case.expected_terminator == '\n') ? "'\\n'" : $"'{test_case.expected_terminator}'";
-
-		return new
-		{
-			expected_terminator = expected_terminator_str,
-			test_case.empty_mode,
-			test_case.newline_mode,
-			test_case.eof_mode,
-			// not quite right but it'll do
-			input = Regex.Escape(test_case.input_text),
-			outcome,
-		};
-			
-		
-
+		using var bpout = new BreakpointOutput();
+		bpout.WriteLine("scheduling cell {0} for removal",
+			ReadVariable(cpu, "list_head")
+			);
+	});
+	cpu.AddBreakpoint("fn_schedule_current_cell_for_removal__debug_hook", c => Year2025Day_PrintGridState(c, "schedule_current_cell_for_removal"));
+	cpu.AddBreakpoint("finished_searching_for_rolls_to_remove", c => Year2025Day_PrintGridState(c, "finished_searching_for_rolls_to_remove"));
+	cpu.AddBreakpoint("pop_list_head", c =>
+	{
+		//c.SingleStepMode = true; 
+	});
+	cpu.AddBreakpoint("for_each_neighbor", _ =>
+	{
+		using var bpout = new BreakpointOutput();
+		bpout.WriteLine("Checking neighbors of {0}", cpu.Memory[(int)cpu.Toc + 1]);
 	}
-	)
-	.Where(x => x.expected_terminator == "'\\n'" && !x.input.Contains(",") && x.eof_mode > 0 && x.newline_mode < 0)
-	//.OrderBy(x => x.empty_mode).ThenBy(x => x.newline_mode).ThenBy(x => x.eof_mode)
-	.ToList().Dump();
+	);
+	cpu.AddBreakpoint("count_neighbors", c =>
+	{
+		using var bpout = new BreakpointOutput();
+		bpout	.WriteLine("visiting neighbor {0} / count = {1}", cpu.Memory[cpu.Toc + 1], cpu.Memory[cpu.Toc + 2]);
+	});
+	cpu.AddBreakpoint("mark_cell_maybe_freed", c =>
+	{
+		using var bpout = new BreakpointOutput();
+		var address = (int) cpu.Memory[cpu.Toc + 3];
+		bpout.WriteLine("trying to mark neighbor {0} as maybe-freed ({1} / {2})", cpu.Memory[cpu.Toc + 1], cpu.Memory[cpu.Toc + 4], cpu.Memory[address + 2]);
+	});
+*/
+
+	StreamWriter stdout_file;
+	if (WRITE_OUTPUT_LOG)
+	{
+		stdout_file = new StreamWriter(Path.Combine(dir, OUTPUT_LOG_NAME), false);
+		OutputTextWriter = stdout_file;
+		OutputLiterals = true;
+	}
+	else
+	{
+		stdout_file = null;
+	}
+	using var tmp = stdout_file;
+
+	cpu = cpu.Patch(
+		//(6, 1)   // debug mode
+		//,(9, 1)  // with line numbers
+		);
+
+	var day3_input = File.ReadAllText(Path.Combine(dir, INPUT_FILE_PATH));
+
+	cpu = cpu.WithIO(new IntcodeInput(day3_input),
+		PrintOutput
+	);
+
+	try
+	{
+		if (WRITE_EXECLOG) ExecutionLogFile = new ExecutionLogFileWriter(new StreamWriter(
+				Path.Combine(Path.GetDirectoryName(Util.CurrentQueryPath), @"intcode-execlog.txt"), false, new UTF8Encoding(false))
+				);
+		RunUntilHalt(cpu, instruction_limit: INSTRUCTION_LIMIT);
+	}
+	finally
+	{
+		//string.Join("\r\n", Last1000Instructions).Dump();
+		ExecutionLogFile?.Dispose();
+	}
 }
 
 class BreakpointOutput : IDisposable
@@ -124,7 +112,7 @@ class BreakpointOutput : IDisposable
 	{
 		ExecutionLogFile?.WriteLine("");
 	}
-
+	
 	public void WriteLine(string message) { Console.WriteLine(message); ExecutionLogFile?.WriteLine(message); }
 	public void WriteLine(string format, params object[] args) { Console.WriteLine(format, args); ExecutionLogFile?.WriteLine(format, args); }
 
@@ -149,11 +137,90 @@ void LoadMemoryMap(string path)
 		.GroupBy(x => x.address)
 		.ToDictionary(x => x.Key, x => x.First().name);
 	_name2Addr = _memoryMap.Where(x => x.address >= 0).ToDictionary(x => x.name, x => x.address);
+
 }
 
 memval_t ReadVariable(IntcodeCpu cpu, string name)
 {
 	return cpu.Memory[_name2Addr[name]];
+}
+
+void Year2025Day_PrintGridState(IntcodeCpu cpu, string breakpointName)
+{
+	if (ExecutionLogFile != null)
+	{
+		ExecutionLogFile.WriteLine("");
+		ExecutionLogFile.WriteLine("{0} breakpoint hit", breakpointName);
+		ExecutionLogFile.WriteLine("");
+	}
+	int width = (int)ReadVariable(cpu, "width");
+	int height = (int)ReadVariable(cpu, "height");
+	int grid_address = (int)_name2Addr["grid"];
+
+	Console.WriteLine("{0} hit", breakpointName);
+	Console.WriteLine();
+	Console.WriteLine("current_pass = {0}", ReadVariable(cpu, "current_pass"));
+	Console.WriteLine("list_head = {0}", ReadVariable(cpu, "list_head"));
+	Console.WriteLine("list_count = {0}", ReadVariable(cpu, "list_count"));
+	Console.WriteLine("new_list_head = {0}", ReadVariable(cpu, "new_list_head"));
+	Console.WriteLine("width = {0}, height = {1}", width, height);
+	Console.WriteLine();
+	var sb = new StringBuilder();
+	try
+	{
+		var read_ptr = grid_address;
+		var cell_id = 0;
+		for (int row = 0; row < height; row++)
+		{
+			sb.AppendFormat("[{0,6}] ", cell_id);
+			for (int col = 0; col < width; col++)
+			{
+				sb.Append("{ ");
+				sb.AppendFormat("{0,4}", cpu.Memory[read_ptr++]);
+				sb.AppendFormat("{0,4}", cpu.Memory[read_ptr++]);
+				sb.AppendFormat("{0,4}", cpu.Memory[read_ptr++]);
+				sb.AppendFormat("{0,4}", cpu.Memory[read_ptr++]);
+				sb.Append("} ");
+				cell_id++;
+			}
+			Console.WriteLine(sb.ToString());
+			sb.Clear();
+		}
+	}
+	finally
+	{
+		Console.WriteLine(sb.ToString());
+	}
+}
+
+void DebugDay22PatternMemory(IntcodeCpu initial_cpu, string day22_prices)
+{
+	using var stdout_file = new StreamWriter(Path.Combine(WorkDir, "pattern_mem.txt"), false);
+
+	int counter = 0;
+	var pricelists = day22_prices.Split(Environment.NewLine + Environment.NewLine);
+	foreach (var pricelist in pricelists)
+	{
+		if (WRITE_EXECLOG) ExecutionLogFile = new ExecutionLogFileWriter(new StreamWriter(
+				Path.Combine(Path.GetDirectoryName(Util.CurrentQueryPath), @"intcode-execlog.txt"), false, new UTF8Encoding(false))
+				);
+
+		var cpu = initial_cpu.Clone().WithIO(
+				new IntcodeInput(pricelist),
+				PrintOutput
+		);
+
+		RunUntilHalt(cpu, false);
+		for (int i = 0; i < 260642; i++)
+		{
+			stdout_file.WriteLine(cpu.Memory[1267 + i]);
+		}
+		stdout_file.WriteLine();
+		stdout_file.Flush();
+		counter++;
+		ExecutionLogFile?.Dispose();
+		Console.WriteLine("Wrote {0} pattern tables", counter);
+	}
 }
 
 
@@ -295,30 +362,15 @@ IntcodeCpu RunUntilHalt(IntcodeCpu cpu, bool print_exectime_info = true, int ins
 	return cpu;
 }
 
-class IntcodeInputBuilder()
-{
-	List<memval_t> _inputs = new List<memval_t>();
-	public IntcodeInputBuilder WriteDirect(memval_t value)
-	{
-		_inputs.Add(value);
-		return this;
-	}
-	public IntcodeInputBuilder WriteString(string value)
-	{
-		_inputs.AddRange(value.Select(ch => (memval_t)ch));
-		return this;
-	}
-	public IntcodeInput Build() => new IntcodeInput(_inputs.ToArray());
-}
 
 readonly struct IntcodeInput
 {
-	readonly memval_t[] _input;
+	readonly string _input;
 	readonly int _offset;
 
-	public IntcodeInput(memval_t[] input, int offset = 0) { _input = input; _offset = offset; }
+	public IntcodeInput(string input, int offset = 0) { _input = input; _offset = offset; }
 
-	public static IntcodeInput Empty => new IntcodeInput(Array.Empty<memval_t>(), 0);
+	public static IntcodeInput Empty => new IntcodeInput("", 0);
 
 	public IntcodeInput Dequeue(out memval_t value)
 	{
@@ -328,7 +380,7 @@ readonly struct IntcodeInput
 		{
 			if (offset >= _input.Length) { value = 0; break; }
 			value = _input[offset++];
-		} while (false);//(value == '\0');
+		} while (value == '\0');
 
 		if (TRACE_INPUT)
 			ExecutionLogFile?.WriteLine("Read character: {0}",
