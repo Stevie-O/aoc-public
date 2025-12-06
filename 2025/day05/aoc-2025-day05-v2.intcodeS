@@ -307,9 +307,9 @@ lt found_index ranges_len return4
 # print_find_rande_index_results
 #
 
-@str str_find_range_index_results_fmt: "find_range_index(%d) returned next_range_id=%d, next_range_address=%d, next_range_start=%d, next_range_end=%d, prev_range_end=%d\n\n"
+@str str_find_range_index_results_fmt: "find_range_index(%d) returned next_range_id=%d, next_range_address=%d, next_range_start=%d, next_range_end=%d, range_exists=%d, prev_range_end=%d\n\n"
 
-@fn 0 print_find_range_index_results(next_range_id, next_range_address, next_range_start, next_range_end, prev_range_end, range_id) global(printf, str_find_range_index_results_fmt)
+@fn 0 print_find_range_index_results(next_range_id, next_range_address, next_range_start, next_range_end, range_exists, prev_range_end, range_id) global(printf, str_find_range_index_results_fmt)
 
 @cpy &str_find_range_index_results_fmt ~1
 @cpy range_id ~2
@@ -317,7 +317,8 @@ lt found_index ranges_len return4
 @cpy next_range_address ~4
 @cpy next_range_start ~5
 @cpy next_range_end ~6
-@cpy prev_range_end ~7
+@cpy range_exists ~7
+@cpy prev_range_end ~8
 @call &printf
 @endfn
 
