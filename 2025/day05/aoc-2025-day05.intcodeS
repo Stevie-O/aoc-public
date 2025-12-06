@@ -69,6 +69,7 @@ add ~1 1 range_end
 
 @cpy range_start ~1
 @cpy range_end ~2
+@callt debug_range_build &print_adding_ranges
 @call &add_range
 @jlt ranges_len ranges_capacity &no_rbo_needed
 # we're running out of room. add more space
@@ -87,8 +88,8 @@ no_rbo_needed:
 ranges_finished:
 jf input_line &first_input_line_blank
 
-#@call &find_part2_answer
-#@jmp &ingredients_finished
+@call &find_part2_answer
+@jmp &ingredients_finished
 
 read_ingredient_id:
 
@@ -126,6 +127,21 @@ first_input_line_blank:
 @cpy &str_first_input_line_blank ~1
 @jmp &print_error_and_die
 
+
+#############################################################################
+#
+# print_adding_ranges()
+#
+
+@str str_adding_range_fmt: "Adding range: %d..%d\n\n"
+@fn 2 print_adding_ranges(start, end) global(printf, str_adding_range_fmt)
+@reference return0 return1
+@cpy &str_adding_range_fmt ~1
+@cpy start ~2
+@cpy end ~3
+@call &printf
+@endfn
+
 #############################################################################
 #
 # print_range_table()
@@ -159,6 +175,34 @@ add ranges_left -1 ranges_left
 jt ranges_left &loop
 
 out '\n'
+
+exit_fn:
+@endfn
+
+#############################################################################
+#
+# find_part2_answer()
+#
+
+@fn 0 find_part2_answer() local(range_size, ranges_left) global(part2_answer, ranges, ranges_len)
+
+# really need to an "auto__fn_end" to the compiler
+jf ranges_len &exit_fn
+@cpy ranges_len ranges_left
+add &ranges 0 read_start_ptr
+add &ranges 1 read_end_ptr
+
+loop:
+
+mul read_start_ptr:*0 -1 range_size
+add read_end_ptr:*0   range_size range_size
+add part2_answer range_size part2_answer
+
+add read_start_ptr 2 read_start_ptr
+add read_end_ptr   2 read_end_ptr
+
+add ranges_left -1 ranges_left
+jt ranges_left &loop
 
 exit_fn:
 @endfn

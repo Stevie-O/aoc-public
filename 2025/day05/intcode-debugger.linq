@@ -13,8 +13,8 @@ const bool WRITE_OUTPUT_LOG = false;
 
 const string OUTPUT_LOG_NAME = "output.txt";
 const string INPUT_FILE_PATH =
-	"example.txt"
-//	"../../puzzle_inputs/2025-05.txt"
+//	"example.txt"
+	"../../puzzle_inputs/2025-05.txt"
 	;
 const int INSTRUCTION_LIMIT =
 	//1_000_000_000
