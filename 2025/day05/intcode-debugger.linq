@@ -18,7 +18,7 @@ const string INPUT_FILE_PATH =
 	;
 const int INSTRUCTION_LIMIT =
 	//1_000_000_000
-	50_000_000
+	5_000_000
 	;
 
 static string WorkDir;
@@ -34,39 +34,6 @@ void Main()
 	var cpu = ParseInput(new StringReader(
 			code_file
 		));
-/*
-	cpu.AddBreakpoint("run_simulation", c => Year2025Day_PrintGridState(c, "run_simulation"));
-	cpu.AddBreakpoint("schedule_current_cell_for_removal", _ =>
-	{
-		using var bpout = new BreakpointOutput();
-		bpout.WriteLine("scheduling cell {0} for removal",
-			ReadVariable(cpu, "list_head")
-			);
-	});
-	cpu.AddBreakpoint("fn_schedule_current_cell_for_removal__debug_hook", c => Year2025Day_PrintGridState(c, "schedule_current_cell_for_removal"));
-	cpu.AddBreakpoint("finished_searching_for_rolls_to_remove", c => Year2025Day_PrintGridState(c, "finished_searching_for_rolls_to_remove"));
-	cpu.AddBreakpoint("pop_list_head", c =>
-	{
-		//c.SingleStepMode = true; 
-	});
-	cpu.AddBreakpoint("for_each_neighbor", _ =>
-	{
-		using var bpout = new BreakpointOutput();
-		bpout.WriteLine("Checking neighbors of {0}", cpu.Memory[(int)cpu.Toc + 1]);
-	}
-	);
-	cpu.AddBreakpoint("count_neighbors", c =>
-	{
-		using var bpout = new BreakpointOutput();
-		bpout	.WriteLine("visiting neighbor {0} / count = {1}", cpu.Memory[cpu.Toc + 1], cpu.Memory[cpu.Toc + 2]);
-	});
-	cpu.AddBreakpoint("mark_cell_maybe_freed", c =>
-	{
-		using var bpout = new BreakpointOutput();
-		var address = (int) cpu.Memory[cpu.Toc + 3];
-		bpout.WriteLine("trying to mark neighbor {0} as maybe-freed ({1} / {2})", cpu.Memory[cpu.Toc + 1], cpu.Memory[cpu.Toc + 4], cpu.Memory[address + 2]);
-	});
-*/
 
 	StreamWriter stdout_file;
 	if (WRITE_OUTPUT_LOG)
@@ -82,8 +49,8 @@ void Main()
 	using var tmp = stdout_file;
 
 	cpu = cpu.Patch(
-		//(6, 1)   // debug mode
-		//,(9, 1)  // with line numbers
+		//(3, 1) // raw output mode
+		//,(5, 1) // debug_range_build
 		);
 
 	var day3_input = File.ReadAllText(Path.Combine(dir, INPUT_FILE_PATH));

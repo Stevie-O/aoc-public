@@ -1,0 +1,946 @@
+jf 0 &start
+@raw raw_output: 0	 use_dle: 1  debug_range_build: 0 print_fresh_ids: 0 debug_find_range_index: 0
+start: rbo &ranges
+# add some space for the ranges array, and a buffer just in case
+rbo 40
+# one range takes 32 words
+@cpy 16 ranges_capacity
+# suppress compiler errors
+@reference printf_and_die print_and_die
+@reference print_fresh_ids
+
+####################################################
+#
+# AOC 2025 Day 5 Intcode Solver
+#
+# Version 2
+#
+#   This version coalesces contiguous ranges when the opportunity presents itself.
+#
+#
+# Input is in ASCII (UTF-32/UCS-4), output is in ASCII (UTF-32/UCS-4).
+#
+# Features:
+#
+# - Solves both parts
+# - No built-in limits on input size -- whatever your IntcodeVM can handle
+#
+# All CRs ('\r' aka 13 or 0x0D) in input are **completely ignored**.
+#
+# Since the input size is indeterminate, EOF must be reported via any of these means:
+#
+# - A blank line after the second section of the input
+# - 0x00 (ASCII NUL)
+# - 0x1A (Ctrl-Z, ASCII SB; MS-DOS or CPM end-of-file indicator)
+# - 0x04 (Ctrl-D, ASCII EOT; Default EOF replacement character on *nix-style TTY drivers)
+# - a negative number (`EOF` constant returned by `fgetc`, `getc`, or `getchar`; see `stdio.h`)
+
+##########################
+#
+# EXECUTION OPTIONS BLOCK - Memory addresses 3-6
+#
+# [3]: raw_output: Default 0. 0 = ASCII output for integers. 1 = Output all integers as raw integer values.
+# [4]: use_dle:    Default 1. 1 = Prefix all raw integer outputs with a a DLE (0x10) character.
+#                             This flag will normally have no effect unless RawOutput is enabled.
+# [5]: debug_range_build: Default 0. If 1, output the contents of the range list after each record in the first input section.
+# [6]: print_fresh_ids:   Default 0. If 1, will output all fresh IDs as they are found.
+# [7]: debug_find_range_index: Default 0. If 1, outputs details on find_range_index outcomes.
+
+#############################################################################
+#
+# Read puzzle input
+#
+#
+# SECTION 1: Ranges
+
+read_next_range:
+
+# read an integer terminated by '-' *OR* a blank line terminated by '\n'
+@cpy '-' ~1
+@cpy 0 ~2
+@cpy 1 ~3
+@cpy 0 ~4
+@call &read_nonnegative_integer_checked
+# ~2 = 1 if we read an integer terminated by '-', 0 if it was a blank line terminated by '\n'
+jf ~2 &ranges_finished
+@cpy ~1 range_start
+
+@cpy '\n' ~1
+@cpy 0 ~2
+@cpy 0 ~3
+@cpy 0 ~4
+@call &read_nonnegative_integer_checked
+add ~1 1 range_end
+
+@cpy range_start ~1
+@cpy range_end ~2
+@callt debug_range_build &print_adding_ranges
+@call &add_range
+@jlt ranges_len ranges_capacity &no_rbo_needed
+# we're running out of room. add more space
+rbo 32
+add ranges_capacity 16 ranges_capacity
+no_rbo_needed:
+
+@callt debug_range_build &print_range_table
+
+@jmp &read_next_range
+
+#
+# SECTION 2: Ingredients
+#
+
+ranges_finished:
+jf input_line &first_input_line_blank
+
+@call &find_part2_answer
+@cpy &str_fresh_ids ~1
+@callt print_fresh_ids &print_string
+
+read_ingredient_id:
+
+@cpy '\n' ~1
+@cpy 1 ~2
+@cpy -1 ~3
+@cpy 1 ~4
+@call &read_nonnegative_integer_checked
+jf ~2 &ingredients_finished
+
+@call &check_ingredient_fresh
+
+@jmp &read_ingredient_id
+
+#############################################################################
+#
+# output answers here
+
+ingredients_finished:
+
+@cpy &str_part1_answer_fmt ~1
+@cpy part1_answer ~2
+@call &printf
+
+@cpy &str_part2_answer_fmt ~1
+@cpy part2_answer ~2
+@call &printf
+
+hlt
+
+
+first_input_line_blank:
+@cpy &str_first_input_line_blank ~1
+@jmp &print_error_and_die
+
+#############################################################################
+#
+# check_ingredient_fresh(id)
+
+@fn 0 check_ingredient_fresh(id) global(print_fresh_ids, output_integer, part1_answer, find_range_index)
+
+@cpy id ~1 
+@call &find_range_index
+# if ~5 is false, id is greater than any fresh ID
+jf ~5 &not_fresh
+# if id < ~3, then id is not fresh
+@jlt id ~3 &not_fresh
+
+#add part1_answer id part1_answer
+# part1 is the COUNT, not the SM
+add part1_answer 1 part1_answer
+jf print_fresh_ids &not_fresh
+
+@cpy id ~1
+@call &output_integer
+out '\n'
+
+not_fresh:
+@endfn
+
+#############################################################################
+#
+# print_adding_ranges()
+#
+
+@str str_adding_range_fmt: "Adding range: %d..%d\n\n"
+@fn 2 print_adding_ranges(start, end) global(printf, str_adding_range_fmt)
+@reference return0 return1
+@cpy &str_adding_range_fmt ~1
+@cpy start ~2
+@cpy end ~3
+@call &printf
+@endfn
+
+#############################################################################
+#
+# print_range_table()
+#
+
+@str str_range_table_fmt: "Range table: (%d ranges)\n\n"
+
+@fn 0 print_range_table() local(ranges_left) global(printf, str_range_table_fmt, ranges, ranges_len, output_integer)
+
+@cpy &str_range_table_fmt ~1
+@cpy ranges_len ~2
+@call &printf
+
+jf ranges_len &exit_fn
+@cpy ranges_len ranges_left
+@cpy &ranges read_range_start_ptr
+add read_range_start_ptr 1 read_range_end_ptr
+
+loop:
+@cpy read_range_start_ptr:*0 ~1
+@call &output_integer
+out '.'
+out '.'
+@cpy read_range_end_ptr:*0 ~1
+@call &output_integer
+out '\n'
+
+add read_range_start_ptr 2 read_range_start_ptr
+add read_range_end_ptr   2 read_range_end_ptr
+add ranges_left -1 ranges_left
+jt ranges_left &loop
+
+out '\n'
+
+exit_fn:
+@endfn
+
+#############################################################################
+#
+# find_part2_answer()
+#
+
+@fn 0 find_part2_answer() local(range_size, ranges_left) global(part2_answer, ranges, ranges_len)
+
+# really need to an "auto__fn_end" to the compiler
+jf ranges_len &exit_fn
+@cpy ranges_len ranges_left
+add &ranges 0 read_start_ptr
+add &ranges 1 read_end_ptr
+
+loop:
+
+mul read_start_ptr:*0 -1 range_size
+add read_end_ptr:*0   range_size range_size
+add part2_answer range_size part2_answer
+
+add read_start_ptr 2 read_start_ptr
+add read_end_ptr   2 read_end_ptr
+
+add ranges_left -1 ranges_left
+jt ranges_left &loop
+
+exit_fn:
+@endfn
+
+
+#############################################################################
+#
+# find_range_index(id)
+#
+# Finds the range that @id belongs to.  If that range does not exist,
+# returns the first range that starts *after* id.
+#
+# internally, searches for the first range where 'id' is less than that range's end
+#
+# return values:
+# ~1 = index, or ranges_len if "one past the end"
+# ~2 = range address (&ranges + 2 * index)
+# ~3 = range start (equal to id, if "one past the end")
+# ~4 = range end   (equal to id, if "one past the end")
+# ~5 = 1 if ~1 is a valid range. 0 if "one past the end"
+# ~6 = range end of ranges[index-1], or -1 if index==0
+
+@fn 6 find_range_index(id_arg) local(dummy1, dummy2, dummy3, dummy4, dummy5, dummy6, id, found_index, found_start, found_end, prev_end) global(ranges_len, ranges)
+
+# return values are aliased with incoming parameters
+# when the number of return values is less than the number of incoming parameters, the excess are aliased with locals
+# this causes problems when trying to populate the return parameters
+@reference dummy1 dummy2 dummy3 dummy4 dummy5 dummy6
+
+# init prev_end
+@cpy -1 prev_end
+# init found_index_address
+@cpy &ranges found_index_address
+# save id_arg to a local so it doesn't get overwritten
+@cpy id_arg id
+# init found_index
+@cpy 0 found_index
+# if there are no ranges in the list, we're already at the end
+jf ranges_len &reached_end
+
+# prep search
+add found_index_address 1 read_found_end_ptr
+
+search_next:
+# read the array index
+@cpy found_index_address:*0 found_start
+@cpy read_found_end_ptr:*0 found_end
+# see if we're in range
+# this requires id < found_end
+@jlt id found_end &exit_fn
+
+add found_index_address 2 found_index_address
+add read_found_end_ptr 2 read_found_end_ptr
+add found_index 1 found_index
+@cpy found_end prev_end
+@jne found_index ranges_len &search_next
+
+reached_end:
+@cpy id found_start
+@cpy id found_end
+
+exit_fn:
+@cpy found_index return0
+@cpy found_index_address return1
+@cpy found_start return2
+@cpy found_end   return3
+lt found_index ranges_len return4
+@cpy prev_end return5
+
+@endfn
+
+#############################################################################
+#
+# print_find_rande_index_results
+#
+
+@str str_find_range_index_results_fmt: "find_range_index(%d) returned next_range_id=%d, next_range_address=%d, next_range_start=%d, next_range_end=%d, prev_range_end=%d\n\n"
+
+@fn 0 print_find_range_index_results(next_range_id, next_range_address, next_range_start, next_range_end, prev_range_end, range_id) global(printf, str_find_range_index_results_fmt)
+
+@cpy &str_find_range_index_results_fmt ~1
+@cpy range_id ~2
+@cpy next_range_id ~3
+@cpy next_range_address ~4
+@cpy next_range_start ~5
+@cpy next_range_end ~6
+@cpy prev_range_end ~7
+@call &printf
+@endfn
+
+
+#############################################################################
+#
+# add_range(range_start, range_end)
+#
+# note that range_end is EXCLUSIVE unlike the puzzle input
+#
+
+@fn 0 add_range(range_start, range_end) local(next_range_id, next_range_address, prev_range_end, next_range_start, next_range_end) global(insertions_performed, ranges_len, ranges, assertion_failed, find_range_index, insert_range_at_pos, debug_find_range_index, print_find_range_index_results)
+
+# input range must be non-empty
+@cpy __LINE__ ~1
+@jge range_start range_end &assertion_failed
+
+jf ranges_len &append_to_end
+
+@cpy range_start ~1
+@call &find_range_index
+@cpy range_start ~7
+@callt debug_find_range_index &print_find_range_index_results
+
+@cpy ~1 next_range_id
+@cpy ~2 next_range_address
+@cpy ~3 next_range_start
+@cpy ~4 next_range_end
+# we don't need ~5 in this routine
+@cpy ~6 prev_range_end
+
+redo_from_start:
+
+@jeq next_range_id ranges_len &append_to_end
+
+# so we've got a few (12) cases that we need to work out here.
+# case 1: prev_range_end = range_start < range_end < next_range_start < next_range_end
+# case 2: prev_range_end < range_start < range_end < next_range_start < next_range_end
+
+# case 3: range_start < range_end = next_range_start < next_range_end
+
+# case 4: range_start < next_range_start < range_end = next_range_end
+# case 5: range_start < next_range_start < range_end < next_range_end
+# case 6: range_start < next_range_start < next_range_end < range_end
+
+# case 7: range_start = next_range_start < range_end = next_range_end
+# case 8: range_start = next_range_start < range_end < next_range_end
+# case 9: range_start = next_range_start < next_range_end < range_end
+# case 10: next_range_start < range_start < range_end = next_range_end
+# case 11: next_range_start < range_start < range_end < next_range_end
+# case 12: next_range_start < range_start < next_range_end < range_end
+
+# cases 1, 2: new range fits between ranges (next_range_id - 1) and next_range_id but does not abut range next_range_id
+@jlt range_end next_range_start &case_12
+# case 3: new range abuts the start of range next_range_id
+@jeq range_end next_range_start &case_3
+@jge range_start next_range_start &case_7_thru_12
+
+# at this point: range_start < next_range_start < range_end (cases 4-6)
+# start by extending next_range to range_start, effectively converting it to cases 7-9
+mul next_range_id 2 extend_next_range_start
+add &ranges extend_next_range_start extend_next_range_start
+@cpy range_start extend_next_range_start:*0
+@cpy range_start next_range_start
+
+case_7_thru_12:
+# at this point: next_range_start <= range_start < next_range_end
+# therefore, we can move on to the next element in the array 
+@cpy next_range_end prev_range_end
+@cpy next_range_end range_start
+# if this leaves us with an empty range, we're done
+@jge range_start range_end &exit_fn
+add next_range_id 1 next_range_id
+add next_range_address 2 next_range_address
+
+add next_range_address 0 case7_read_start_ptr
+add next_range_address 1 case7_read_end_ptr
+
+@cpy case7_read_start_ptr:*0 next_range_start
+@cpy case7_read_end_ptr:*0   next_range_end
+
+# if this has reduced the 
+@jmp &redo_from_start
+
+case_12:
+# the new range doesn't overlap with the range at index next_range_id -OR- the one before it
+# if ~5 != range_start, this is case 2 and we must do an insert
+@jne prev_range_end range_start &do_insert
+# okay, this is case 1.  the new range abuts the end of range (next_range_id - 1)
+# we can just set the end of the that range to range_end
+mul next_range_id 2 prev_range_end_addr
+add &ranges prev_range_end_addr prev_range_end_addr
+add prev_range_end_addr -1 prev_range_end_addr
+@cpy range_end prev_range_end_addr:*0
+@jmp &exit_fn
+
+case_3:
+# the new range abuts the front of range next_range_id
+# we can just set the tart of range next_range_id to range_end
+mul next_range_id 2 next_range_start_addr
+add &ranges next_range_start_addr next_range_start_addr
+@cpy range_start next_range_start_addr:*0
+@jmp &exit_fn
+
+do_insert:
+# okay, we need to insert a range into the array
+@cpy next_range_id ~1
+@cpy next_range_address ~2
+@cpy range_start ~3
+@cpy range_end ~4
+@cpy next_range_start ~5
+@cpy next_range_end ~6
+@cpy &exit_fn ~0
+@jmp &insert_range_at_pos
+
+append_to_end:
+mul ranges_len 2 write_range_start
+add &ranges write_range_start write_range_start
+add write_range_start 1 write_range_end
+
+@cpy range_start write_range_start:*0
+@cpy range_end write_range_end:*0
+add ranges_len 1 ranges_len
+add insertions_performed 1 insertions_performed
+
+exit_fn:
+
+@endfn
+
+#############################################################################
+#
+# insert_range_at_pos(array_index, element_address, range_start, range_end)
+#
+
+@fn 0 insert_range_at_pos(array_index, element_address, range_start, range_end, next_range_start, next_range_end) local(tmp_start, tmp_end, change_in_size) global(ranges_len)
+
+# we're going to add 1 element. probably.
+@cpy 1 change_in_size
+add element_address 0 write_dest_start_ptr
+add element_address 1 write_dest_end_ptr
+add element_address 2 read_next_start_ptr
+add element_address 3 read_next_end_ptr
+
+do_move:
+@cpy range_start write_dest_start_ptr:*0
+@cpy range_end   write_dest_end_ptr:*0
+
+add array_index 1 array_index
+@jgt array_index ranges_len &exit_fn
+
+@cpy read_next_start_ptr:*0 tmp_start
+@cpy read_next_end_ptr:*0   tmp_end
+
+@jne range_end next_range_start &simple_insert
+
+# okay, range_end == next_range_start
+# we can merge these two ranges
+add change_in_size -1 change_in_size
+@cpy next_range_end range_end
+@cpy tmp_start next_range_start
+@cpy tmp_end   next_range_end
+add read_next_start_ptr  2 read_next_start_ptr 
+add read_next_end_ptr    2 read_next_end_ptr 
+@jmp &do_move
+
+
+simple_insert:
+
+@cpy next_range_start range_start
+@cpy next_range_end range_end
+@cpy tmp_start next_range_start
+@cpy tmp_end   next_range_end
+
+add write_dest_start_ptr 2 write_dest_start_ptr 
+add write_dest_end_ptr   2 write_dest_end_ptr 
+add read_next_start_ptr  2 read_next_start_ptr 
+add read_next_end_ptr    2 read_next_end_ptr 
+
+@jmp &do_move
+
+exit_fn:
+add ranges_len change_in_size ranges_len
+
+@endfn
+
+###############################################################################
+
+# @fn 0 memset(dest, ch, count)
+
+# jf count &skip
+# @cpy dest rdi
+# loop:
+# @cpy ch rdi:*0
+# add rdi 1 rdi
+# add count -1 count
+# jt count &loop
+# skip:
+
+# @endfn
+
+
+#############################################################################
+#
+# read_nonnegative_integer_checked(expected_terminator, empty_mode, newline_mode, eof_mode)
+#
+# Read a nonnegative integer from stdin, doing additional validation
+#
+# expected_terminator (~1): the character that is expected to terminate the number
+# empty_mode          (~2): behavior if no characters are read
+#       0 = zero-length input is invalid. even if the expected terminator is read, it counts as unexpected.
+#       1 = zero-length input is valid, the returned value is zero
+# newline_mode        (~2): behavior if terminated by '\n'
+#       set to -1 if expected_terminator is '\n' and eof_mode is -1
+#       0 = newline is invalid and will be treated as any other invalid character
+#       1 = newline is valid if and only if it was the only character read
+#      -1 = newline is a valid alternate to expected_terminator
+# eof_mode            (~3): behavior if terminated by EOF
+#      -1 = treat EOF as newline
+#       0 = EOF is invalid and will generate an "unexpected EOF"
+#       1 = EOF is valid if it was read immediately
+#
+# Return values:
+#       ~1 = the value that was read (or 0 if no digits were read, but the read was still considered successful)
+#       ~2 = 1 if a value was successfully read
+#            0 if a blank input was successfully read
+#           -1 if a value was successfully read and terminated by a newline instead of expected_terminator
+#           -2 if a value was successfully read and terminated by an EOF instead of expected_terminator
+#
+# This is really complicated, so I'm making a tool to help me test it.
+#
+# | expected_terminator | empty_mode | newline_mode | eof_mode | input            | outcome
+# |---------------------|------------|--------------|----------|------------------|---------------------------
+
+@fn 2 read_nonnegative_integer_checked(expected_terminator, empty_mode, newline_mode, eof_mode) local(status) global(read_nonnegative_integer, report_unexpected_character, report_unexpected_eof)
+
+@call &read_nonnegative_integer
+# set status to 1 if we read a value, else 0
+lt 0 ~2 status
+@jeq ~3 expected_terminator &got_expected_terminator
+@jeq ~3 '\n' &got_newline
+jf ~3 &got_eof
+# we didn't get the expected terminator, a newline, *or* EOF. bail.
+@jmp &report_unexpected_character
+
+got_expected_terminator:
+# if empty_mode is 1, we always accept the expected terminator
+jt empty_mode &exit_fn
+# if empty_mode is 0, we accept only if we read a value
+jt status &exit_fn
+@jmp &report_unexpected_character
+
+got_eof:
+# if eof_mode is 0, eof is unexpected
+jf eof_mode &report_unexpected_eof
+# if eof_mode is -1, eof is treated like a newline
+@jlt eof_mode 0 &got_newline
+# if eof_mode is 1, eof is valid only if we didn't read any digits
+jf status &exit_fn
+@jmp &report_unexpected_eof
+
+got_newline:
+# if newline_mode is 0, treat it as an invalid character
+jf newline_mode &report_unexpected_character
+jf status &no_adjust_status
+eq ~3 0 actually_eof
+add status actually_eof:0 status
+mul status -1 status
+no_adjust_status:
+# if newline_mode is -1, it acts like expected_terminator
+@jlt newline_mode 0 &got_expected_terminator
+# otherwise, newline_mode is 1, and it's only valid when we didn't read any digits
+jf status &exit_fn
+@jmp &report_unexpected_character
+
+exit_fn:
+@cpy ~1 return0
+@cpy status return1
+
+@endfn
+
+report_unexpected_character:
+# having this jump makes eof_mode easier to implement
+jf ~3 &report_unexpected_eof
+
+@cpy &str_unexpected_character_in_input_fmt ~1
+@cpy ~3 ~2
+add input_line 1 ~3
+add input_column 1 ~4
+@jmp &printf_error_and_die
+
+report_unexpected_eof:
+@cpy &str_unexpected_end_of_file_fmt ~1
+add input_line 1 ~2
+add input_column 1 ~3
+@jmp &printf_error_and_die
+
+############################################################################################
+# input.lib
+# version 20251205-0001
+
+# 0-based line and column number for stdin
+@raw pending_newline: 0 input_line: 0 input_column: 0
+
+#############################################################################
+#
+# Read a nonnegative integer from input.
+#
+# Return values:
+#    ~1 - the value that was read, -or- 0 if no digits were read
+#    ~2 - the number of digits that were read
+#    ~3 - the (non-digit) input value that terminated the read, or 0 if the input was terminated by an EOF indicator
+
+@fn 3 read_nonnegative_integer() local(acc, digit_count, ch) global(pending_newline, input_line, input_column)
+
+@cpy 0 acc
+@cpy 0 digit_count
+
+# if the last read terminated in '\n', increment the line number and reset the column
+jf pending_newline &read_loop
+@cpy 0 pending_newline
+add input_line 1 input_line
+@cpy 0 input_column
+
+read_loop:
+in ch
+@jeq ch '\r' &read_loop
+@jle ch 4 &handle_eof
+@jeq ch 26 &handle_eof
+add input_column 1 input_column
+@jlt ch '0' &terminate
+@jgt ch '9' &terminate
+add digit_count 1 digit_count
+add ch -'0' ch
+mul acc 10 acc
+add acc ch acc
+@jmp &read_loop
+
+handle_eof:
+@cpy 0 ch
+
+terminate:
+# if we stopped because of a newline, set things up so we'll increment the line number and reset the column number on the next read
+# not only is doing it that way slightly easier, it means that error messages caused by an unexpected newline won't be reported
+# against the wrong line
+eq ch '\n' pending_newline
+
+# with no parameters:
+# 	acc and return0 are aliased
+#   digit_count and return1 are aliased
+#   ch and return2 are aliased
+#
+# also, in retrospect, topaz should've made them return1, return2, return3 -- that way their names would match the ~1 ~2 ~3 you use
+# in the code.
+
+@reference return0 return1 return2
+
+@endfn
+
+
+############################################################################################
+# output.lib
+# version 20251205-0001
+
+############################################################################################
+#
+#  output_integer(value)
+#
+# in ASCII mode, prints value in ASCII
+# in raw mode, outputs value directly
+# if raw mode is enabled and use_dle is on, raw values are prefixed with 0x10 (DLE)
+
+@fn 0 output_integer(value) global(print_decimal, raw_output, use_dle)
+
+jt raw_output &do_raw_output
+# this works ONLY when both routines have the same number of locals+parameters
+# UPDATE: tail-call doesn't actually work correctly because the relative base register (i.e. stack pointer) isn't adjusted correctly.
+@cpy value ~1
+@cpy &no_raw_output ~0
+@jmp &print_decimal
+
+do_raw_output:
+
+jf use_dle &no_dle
+out 16
+no_dle:
+out value
+
+no_raw_output:
+
+@endfn
+
+# print possibly-negative decimal number
+print_decimal:
+lt ~1 0 _print_decimal_is_negative
+jf _print_decimal_is_negative:0 &print_nonnegative_decimal
+out '-'
+mul ~1 -1 ~1
+# fall through to print_nonnegative_decimal
+
+# print nonnegative decimal number (negative numbers will not be printed)
+# changing this to support negatives would be easy but I don't need it
+@fn 0 print_nonnegative_decimal(n) global(print_next_decimal_digit)
+jf n &print_zero
+@cpy n ~1
+@cpy 1 ~2
+@call &print_next_decimal_digit
+@jmp &exitfun
+print_zero: out '0'
+exitfun:
+@endfn
+
+@fn 1 print_next_decimal_digit(n, mask) local(dig, negmask)
+
+# PRECONDITIONS: n >= mask, mask is a power of 10
+# POSTCONDITIONS: upon return, ~1 has all powers of 10 greater than mask removed
+
+@cpy n ~1
+@jlt n mask &exitfn
+
+mul mask 10 ~2
+@call &print_next_decimal_digit
+@cpy ~1 n
+
+mul mask -1 negmask
+@cpy '0' dig
+compute_digit:
+@jlt n mask &done_compute_digit
+add dig 1 dig
+add n negmask n
+@jmp &compute_digit
+done_compute_digit:
+
+out dig
+
+exitfn:
+@cpy n return0
+@endfn
+
+
+# GOTCHA: return parameters and incoming arguments share stack space, so be careful
+
+#########################################################
+#
+# print_string(&str)
+
+@fn 0 print_string(string_address) local(strlen, tmpchar)
+
+@cpy string_address read_strlen
+add read_strlen:*0 0 strlen
+add 1 string_address string_reader
+message_print_loop:
+add string_reader:*0 0 tmpchar
+add string_reader 1 string_reader
+out tmpchar
+add strlen -1 strlen
+jt strlen &message_print_loop
+
+@endfn
+
+#########################################################
+#
+# printf(&str, ...)
+#
+# TODO: experiment with using NUL-terminated strings instead.
+
+@fn 0 printf(format_string, arg0, arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8, arg9) global(output_integer)
+
+@reference arg1 arg2 arg3 arg4 arg5 arg6 arg7 arg8 arg9
+@cpy 0 arg_shift
+@cpy format_string read_length_ptr
+@cpy read_length_ptr:*0 format_string_length
+jf format_string_length:0 &exit_fn
+add format_string 1 read_string_ptr
+
+process_next_char:
+@cpy read_string_ptr:*0 next_char
+add read_string_ptr 1 read_string_ptr
+add format_string_length -1 format_string_length
+@jeq next_char '%' &process_format
+out next_char:0
+@jmp &advance_loop
+process_format:
+@cpy read_string_ptr read_string_ptr2
+@cpy read_string_ptr2:*0 next_char
+add read_string_ptr 1 read_string_ptr
+add format_string_length -1 format_string_length
+@jeq next_char '%' &format_literal_percent
+@jeq next_char 'c' &format_char
+@jeq next_char 'C' &format_printable_char
+# assume %d by default
+
+format_integer:
+@cpy arg0 ~1
+@call &output_integer
+rbo 1
+add arg_shift -1 arg_shift
+@jmp &advance_loop
+
+format_literal_percent:
+out '%'
+@jmp &advance_loop
+
+format_printable_char:
+@jge arg0 32 &format_char
+out '\\'
+@jeq arg0 '\n' &escape_n
+@jeq arg0 '\r' &escape_r
+@jeq arg0 0 &escape_0
+@jeq arg0 '\t' &escape_t
+out '\\'
+out 'd'
+@jmp &format_integer
+escape_n:
+@cpy 'n' arg0
+@jmp &format_char
+escape_r:
+@cpy 'r' arg0
+@jmp &format_char
+escape_0:
+@cpy '0' arg0
+@jmp &format_char
+escape_t:
+@cpy 't' arg0
+@jmp &format_char
+
+format_char:
+out arg0
+rbo 1
+add arg_shift -1 arg_shift
+@jmp &advance_loop
+
+advance_loop:
+jt format_string_length &process_next_char
+
+exit_fn:
+rbo arg_shift:0
+@endfn
+
+
+
+
+#####################################
+#
+# error routines. call with @jmp, not @call (well, @call is fine, but it's a waste)
+
+####################################
+#
+# assertion_failed(line number)
+#
+# Print out "Error: Assertion failed on line <line number>" and halt.
+
+assertion_failed:
+@cpy ~1 ~2
+@cpy &str_assertion_failed_fmt ~1
+@jmp &printf_error_and_die
+
+#####################################
+#
+# print_error_and_die(&str_message)
+#
+# Outputs "Error: " followed by the supplied message, then halts.
+#
+
+print_error_and_die:
+rbo 2
+@cpy &str_error ~1
+@call &print_string
+rbo -2
+# fall through to print_and_die
+
+#####################################
+#
+# print_and_die(&str_message)
+#
+# Outputs the supplied message, then halts.
+
+print_and_die:
+@call &print_string
+hlt
+
+#####################################
+#
+# printf_error_and_die(&str_format, ...)
+#
+# Outputs "Error: " followed by the formatted message, then halts.
+
+printf_error_and_die:
+# move the stack pointer far, far away so we don't trash the incoming parameters
+rbo 100
+@cpy &str_error ~1
+@call &print_string
+rbo -100
+
+# fall through to print_and_die
+
+#####################################
+#
+# printf_and_die(&str_format, ...)
+#
+# Outputs the formatted message, then halts.
+
+printf_and_die:
+@call &printf
+hlt
+
+###################################################################################
+# Strings
+
+@str str_error: "Error: "
+@str str_first_input_line_blank: "First input line is blank/empty\n"
+@str str_unexpected_character_in_input_fmt: "Unexpected character '%C' in input at line %d, column %d\n"
+@str str_unexpected_end_of_file_fmt: "Unexpected end-of-file in input at line %d, column %d\n"
+@str str_assertion_failed_fmt: "Assertion failed on line %d\n"
+@str str_part1_answer_fmt: "Part 1: %d\n"
+@str str_part2_answer_fmt: "Part 2: %d\n"
+
+@str str_fresh_ids: "Fresh IDs:\n\n"
+
+###################################################################################
+
+@raw part1_answer:0 part2_answer:0
+@raw range_start: 0 range_end: 0
+@raw insertions_performed: 0
+@raw ranges_len: 0 ranges_capacity: 0
+
+ranges:
