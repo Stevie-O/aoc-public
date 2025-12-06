@@ -1,0 +1,162 @@
+rbo &auto__end
+
+in ~1
+in ~2
+in ~3
+in ~4
+@call &read_nonnegative_integer_checked
+out 0
+out ~1
+out ~2
+hlt
+
+#############################################################################
+#
+# read_nonnegative_integer_checked(expected_terminator, empty_mode, newline_mode, eof_mode)
+#
+# Read a nonnegative integer from stdin, doing additional validation
+#
+# expected_terminator (~1): the character that is expected to terminate the number
+# empty_mode          (~2): behavior if no characters are read
+#       0 = zero-length input is invalid. even if the expected terminator is read, it counts as unexpected.
+#       1 = zero-length input is valid, the returned value is zero
+# newline_mode        (~2): behavior if terminated by '\n'
+#       set to -1 if expected_terminator is '\n' and eof_mode is -1
+#       0 = newline is invalid and will be treated as any other invalid character
+#       1 = newline is valid if and only if it was the only character read
+#      -1 = newline is a valid alternate to expected_terminator
+# eof_mode            (~3): behavior if terminated by EOF
+#      -1 = treat EOF as newline
+#       0 = EOF is invalid and will generate an "unexpected EOF"
+#       1 = EOF is valid if it was read immediately
+#
+# Return values:
+#       ~1 = the value that was read (or 0 if no digits were read, but the read was still considered successful)
+#       ~2 = 1 if a value was successfully read
+#            0 if a blank input was successfully read
+#           -1 if a value was successfully read and terminated by a newline instead of expected_terminator
+#           -2 if a value was successfully read and terminated by an EOF instead of expected_terminator
+#
+# This is really complicated, so I'm making a tool to help me test it.
+#
+# | expected_terminator | empty_mode | newline_mode | eof_mode | input            | outcome
+# |---------------------|------------|--------------|----------|------------------|---------------------------
+
+@fn 2 read_nonnegative_integer_checked(expected_terminator, empty_mode, newline_mode, eof_mode) local(status) global(read_nonnegative_integer, report_unexpected_character, report_unexpected_eof)
+
+@call &read_nonnegative_integer
+# set status to 1 if we read a value, else 0
+lt 0 ~2 status
+@jeq ~3 expected_terminator &got_expected_terminator
+@jeq ~3 '\n' &got_newline
+jf ~3 &got_eof
+# we didn't get the expected terminator, a newline, *or* EOF. bail.
+@jmp &report_unexpected_character
+
+got_expected_terminator:
+# if empty_mode is 1, we always accept the expected terminator
+jt empty_mode &exit_fn
+# if empty_mode is 0, we accept only if we read a value
+jt status &exit_fn
+@jmp &report_unexpected_character
+
+got_eof:
+# if eof_mode is 0, eof is unexpected
+jf eof_mode &report_unexpected_eof
+# if eof_mode is -1, eof is treated like a newline
+@jlt eof_mode 0 &got_newline
+# if eof_mode is 1, eof is valid only if we didn't read any digits
+jf status &exit_fn
+@jmp &report_unexpected_eof
+
+got_newline:
+# if newline_mode is 0, treat it as an invalid character
+jf newline_mode &report_unexpected_character
+eq ~3 0 actually_eof
+add status actually_eof:0 status
+mul status -1 status
+# if newline_mode is -1, it acts like expected_terminator
+@jlt newline_mode 0 &got_expected_terminator
+# otherwise, newline_mode is 1, and it's only valid when we didn't read any digits
+jf status &exit_fn
+@jmp &report_unexpected_character
+
+exit_fn:
+@cpy ~1 return0
+@cpy status return1
+
+@endfn
+
+report_unexpected_character:
+# having this jump makes eof_mode easier to implement
+jf ~3 &report_unexpected_eof
+out 1
+out ~3
+hlt
+
+report_unexpected_eof:
+out 2
+hlt
+
+
+############################################################################################
+# input.lib
+# version 20251205-0001
+
+# 0-based line and column number for stdin
+@raw pending_newline: 0 input_line: 0 input_column: 0
+
+#############################################################################
+#
+# Read a nonnegative integer from input.
+#
+# Return values:
+#    ~1 - the value that was read, -or- 0 if no digits were read
+#    ~2 - the number of digits that were read
+#    ~3 - the (non-digit) input value that terminated the read, or 0 if the input was terminated by an EOF indicator
+
+@fn 3 read_nonnegative_integer() local(acc, digit_count, ch) global(pending_newline, input_line, input_column)
+
+@cpy 0 acc
+@cpy 0 digit_count
+
+# if the last read terminated in '\n', increment the line number and reset the column
+jf pending_newline &read_loop
+@cpy 0 pending_newline
+add input_line 1 input_line
+@cpy 0 input_column
+
+read_loop:
+in ch
+@jeq ch '\r' &read_loop
+@jle ch 4 &handle_eof
+@jeq ch 26 &handle_eof
+add input_column 1 input_column
+@jlt ch '0' &terminate
+@jgt ch '9' &terminate
+add digit_count 1 digit_count
+add ch -'0' ch
+mul acc 10 acc
+add acc ch acc
+@jmp &read_loop
+
+handle_eof:
+@cpy 0 ch
+
+terminate:
+# if we stopped because of a newline, set things up so we'll increment the line number and reset the column number on the next read
+# not only is doing it that way slightly easier, it means that error messages caused by an unexpected newline won't be reported
+# against the wrong line
+eq ch '\n' pending_newline
+
+# with no parameters:
+#   acc and return0 are aliased
+#   digit_count and return1 are aliased
+#   ch and return2 are aliased
+#
+# also, in retrospect, topaz should've made them return1, return2, return3 -- that way their names would match the ~1 ~2 ~3 you use
+# in the code.
+
+@reference return0 return1 return2
+
+@endfn
