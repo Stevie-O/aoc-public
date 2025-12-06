@@ -1,5 +1,5 @@
 jf 0 &start
-@raw raw_output: 0	 use_dle: 1  debug_range_build: 1 print_fresh_ids: 1
+@raw raw_output: 0	 use_dle: 1  debug_range_build: 1 print_fresh_ids: 1 debug_find_range_index: 1
 start: rbo &ranges
 # add some space for the ranges array, and a buffer just in case
 rbo 40
@@ -39,6 +39,7 @@ rbo 40
 #                             This flag will normally have no effect unless RawOutput is enabled.
 # [5]: debug_range_build: Default 0. If 1, output the contents of the range list after each record in the first input section.
 # [6]: print_fresh_ids:   Default 0. If 1, will output all fresh IDs as they are found.
+# [7]: debug_find_range_index: Default 0. If 1, outputs details on find_range_index outcomes.
 
 #############################################################################
 #
@@ -219,6 +220,25 @@ is_first:
 lt found_index ranges_len return4
 @endfn
 
+#############################################################################
+#
+# print_find_rande_index_results
+#
+
+@str str_find_range_index_results_fmt: "find_range_index(%d) returned next_range_id=%d, next_range_address=%d, next_range_start=%d, next_range_end=%d, prev_range_end=%d\n\n"
+
+@fn 0 print_find_range_index_results(next_range_id, next_range_address, next_range_start, next_range_end, prev_range_end, range_id) global(printf, str_find_range_index_results_fmt)
+
+@cpy &str_find_range_index_results_fmt ~1
+@cpy range_id ~2
+@cpy next_range_id ~3
+@cpy next_range_address ~4
+@cpy next_range_start ~5
+@cpy next_range_end ~6
+@cpy prev_range_end ~7
+@call &printf
+@endfn
+
 
 #############################################################################
 #
@@ -227,7 +247,7 @@ lt found_index ranges_len return4
 # note that range_end is EXCLUSIVE unlike the puzzle input
 #
 
-@fn 0 add_range(range_start, range_end) local(next_range_id, next_range_address, prev_range_end, next_range_start, next_range_end) global(insertions_performed, ranges_len, ranges, assertion_failed, find_range_index, insert_range_at_pos)
+@fn 0 add_range(range_start, range_end) local(next_range_id, next_range_address, prev_range_end, next_range_start, next_range_end) global(insertions_performed, ranges_len, ranges, assertion_failed, find_range_index, insert_range_at_pos, debug_find_range_index, print_find_range_index_results)
 
 # input range must be non-empty
 @cpy __LINE__ ~1
@@ -237,6 +257,8 @@ jf ranges_len &append_to_end
 
 @cpy range_start ~1
 @call &find_range_index
+@cpy range_start ~7
+@callt debug_find_range_index &print_find_range_index_results
 
 @cpy ~1 next_range_id
 @cpy ~2 next_range_address
