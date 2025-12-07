@@ -106,15 +106,15 @@ eq is_space 0 not_space
 add input_char -'0' digit_value
 # write the value to the corresponding part2 column
 rbo num_columns
-mul digit_value not_space input_char
+mul digit_value not_space ~0
 
 jt is_space &no_part1_data
 
 # update the value for the corresponding part1 column
 rbo r0_chars_left
 rbo table_size
-mul input_char 10 input_char
-add input_char digit_value input_char
+mul ~0 10 ~0
+add ~0 digit_value ~0
 rbo table_size_inv
 rbo r0_chars_left_inv
 

@@ -126,6 +126,7 @@ memval_t ReadVariable(IntcodeCpu cpu, string name)
 
 void Year2025Day6_PrintState(IntcodeCpu cpu, string breakpointName)
 {
+	//cpu.Memory[cpu.Pc] = 99; // HLT
 	var bpout = new BreakpointOutput();
 	bpout.WriteLine("{0} breakpoint hit", breakpointName);
 	bpout.WriteLine("");
@@ -142,6 +143,8 @@ void Year2025Day6_PrintState(IntcodeCpu cpu, string breakpointName)
 				})
 		bpout.WriteLine("{0} = {1}", var_name, ReadVariable(cpu, var_name));
 	bpout.WriteLine("");
+	bpout.WriteLine("Part 2 column status: {0}",
+				string.Join(" ", cpu.Memory.Skip(first_row_address).Take(num_columns)));
 	bpout.WriteLine("Part 2 accumulators: {0}",
 				string.Join(" ", cpu.Memory.Skip(first_row_address + num_columns).Take(num_columns)));
 	bpout.WriteLine("Part 1 table: {0}",
