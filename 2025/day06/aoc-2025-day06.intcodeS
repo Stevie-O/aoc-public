@@ -1,11 +1,8 @@
 jf 0 &start
 @raw raw_output: 0	 use_dle: 1 
 start: rbo &first_row
-@reference assertion_failed
 @reference debug_checkpoint_1
-@reference num_rows
 @reference print_and_die
-
 
 ####################################################
 #
@@ -88,33 +85,36 @@ rbo num_columns_inv
 mul num_columns -1 r0_chars_left_inv
 @cpy 1 was_space
 
-
 scan_first_row:
 
 # make sure the following variables are correct:
 # - not_space  (1 if the input character is a space, else 0)
 # - table_size (incremented if we've started a new part 1 column)
-eq ~0 32 is_space
+@cpy ~0 input_char
+eq input_char 32 is_space
 eq is_space 0 not_space
+@cpy not_space ~0
 lt is_space was_space started_new_column
 @cpy is_space was_space
 
+jf started_new_column &r0_no_new_p1_column
 add table_size started_new_column table_size
 mul table_size -1 table_size_inv
+r0_no_new_p1_column:
 
 eq is_space 0 not_space
-add ~0 -'0' digit_value
+add input_char -'0' digit_value
 # write the value to the corresponding part2 column
 rbo num_columns
-mul digit_value not_space ~0
+mul digit_value not_space input_char
 
 jt is_space &no_part1_data
 
 # update the value for the corresponding part1 column
 rbo r0_chars_left
 rbo table_size
-mul ~0 10 ~0
-add ~0 digit_value ~0
+mul input_char 10 input_char
+add input_char digit_value input_char
 rbo table_size_inv
 rbo r0_chars_left_inv
 
@@ -129,10 +129,207 @@ jt r0_chars_left &scan_first_row
 
 #################################################################
 
-# at this point, 
-
 debug_checkpoint_1:
+
+#################################################################
+#
+# PHASE 2
+#
+# read the other rows of numbers.
+
+scan_next_row:
+
+add num_rows     1 num_rows
+@cpy 0 current_column
+@cpy num_columns   r0_chars_left
+mul num_columns -1 r0_chars_left_inv
+@cpy 1 was_space
+add input_line 1 input_line
+@cpy 0 input_column
+
+scan_next_row_col:
+
+# okay, we got a lot of work to do here. a lot of it is a repeat of code from the scan_first_row code
+
+in input_char
+@jeq input_char '\r' &scan_next_row_col
+@jlt input_char 4 &unexpected_eof
+@jeq input_char 26 &unexpected_eof
+eq input_column 0 is_first_column
+add input_column 1 input_column
+jf is_first_column:0 &not_first_column
+@jeq input_char '*' &found_operator_row
+@jeq input_char '+' &found_operator_row
+not_first_column:
+
+@jeq input_char '\n' &phase2_eol
+jf r0_chars_left &inconsistent_columns
+eq input_char 32 is_space
+eq is_space 0 not_space
+lt is_space was_space started_new_column
+@cpy is_space was_space
+jt is_space &snrc_ignore_space
+@jlt input_char '0' &unexpected_character
+@jgt input_char '9' &unexpected_character
+
+jf started_new_column &phase2_no_new_p1_column
+add table_size started_new_column table_size
+mul table_size -1 table_size_inv
+phase2_no_new_p1_column:
+
+# record this column as having at least one digit
+rbo num_columns_inv
+add not_space ~0 ~0
+rbo num_columns
+
+add input_char -'0' digit_value
+mul ~0 10 ~0
+add ~0 digit_value ~0
+
+# update the value for the corresponding part1 column
+rbo r0_chars_left
+rbo table_size
+mul ~0 10 ~0
+add ~0 digit_value ~0
+rbo table_size_inv
+rbo r0_chars_left_inv
+
+snrc_ignore_space:
+
+rbo 1
+add r0_chars_left     -1 r0_chars_left
+add r0_chars_left_inv  1 r0_chars_left_inv
+@jmp &scan_next_row_col
+
+phase2_eol:
+add input_column -1 input_column
+jt r0_chars_left &inconsistent_columns
+rbo num_columns_inv
+@jmp &scan_next_row
+
+#################################################################
+#
+# PHASE 3
+#
+# scan the operator row.
+
+found_operator_row:
+
+@cpy num_columns   r0_chars_left
+mul num_columns -1 r0_chars_left_inv
+@cpy 1             current_p1_column
+@cpy -1            current_p1_column_inv
+
+@cpy input_char    current_operator
+@cpy ~0 p2_accum
+@jeq current_operator '+' &begin_operator_add
+
+#############################
+#
+# Set things up for when we encounter a '*' operator
+
+begin_operator_mul:
+rbo r0_chars_left
+rbo current_p1_column
+@cpy 1 p1_accum
+@cpy num_rows p1_rows_left
+loop_mul:
+mul p1_accum ~0 p1_accum
+rbo num_operations
+add p1_rows_left -1 p1_rows_left
+jt p1_rows_left &loop_mul
+# rewind
+rbo table_size_inv
+rbo current_p1_column_inv
+###
+add r0_chars_left -1 r0_chars_left
+add r0_chars_left_inv 1 r0_chars_left_inv
+###
+rbo r0_chars_left_inv
+
+add part1_answer p1_accum part1_answer
+@jmp &read_next_operator_row_char
+
+#############################
+#
+# Set things up for when we encounter a '+' operator
+
+begin_operator_add:
+@cpy ~0 p2_accum
+rbo r0_chars_left
+rbo current_p1_column
+@cpy 0 p1_accum
+@cpy num_rows p1_rows_left
+loop_add:
+add p1_accum ~0 p1_accum
+rbo num_operations
+add p1_rows_left -1 p1_rows_left
+jt p1_rows_left &loop_add
+# rewind
+rbo table_size_inv
+rbo current_p1_column_inv
+###
+add r0_chars_left -1 r0_chars_left
+add r0_chars_left_inv 1 r0_chars_left_inv
+###
+rbo r0_chars_left_inv
+
+add part1_answer p1_accum part1_answer
+@jmp &read_next_operator_row_char
+
+#####
+#
+
+read_next_operator_row_char:
+in input_char
+add input_column 1 input_column
+@jeq input_char '\r' &read_next_operator_row_char
+@jle input_char 5 &unexpected_eof
+@jeq input_char 26 &unexpected_eof
+@jeq input_char '\n' &operator_row_eol
+jf r0_chars_left_inv &inconsistent_columns
+
+add r0_chars_left -1 r0_chars_left
+add r0_chars_left_inv 1 r0_chars_left_inv
+
+@jeq input_char 32 &continue_current_operator
+
+add part2_answer p2_accum part2_answer
+
+#next_operator:
+
+add current_p1_column 1  current_p1_column 
+add current_p1_column_inv -1 current_p1_column_inv
+@cpy input_char    current_operator
+@cpy ~0 p2_accum
+@jeq current_operator '+' &begin_operator_add
+@jeq current_operator '*' &begin_operator_mul
+@jmp &unexpected_character
+
+continue_current_operator:
+rbo num_columns_inv
+eq ~0 0 blank_column
+rbo num_columns
+rbo 1
+jt blank_column &read_next_operator_row_char
+@jeq current_operator '+' &continue_operator_add
+@jeq current_operator '*' &continue_operator_mul
+@cpy __LINE__ ~1
+@jmp &assertion_failed
 hlt
+
+continue_operator_add:
+add p2_accum ~-1 p2_accum
+@jmp &read_next_operator_row_char
+
+continue_operator_mul:
+mul p2_accum ~-1 p2_accum
+@jmp &read_next_operator_row_char
+
+
+operator_row_eol:
+# FINALLY
+
 
 #############################################################################
 #
@@ -141,6 +338,7 @@ hlt
 @cpy &str_part1_answer_fmt ~1
 @cpy part1_answer ~2
 @call &printf
+
 
 @cpy &str_part2_answer_fmt ~1
 @cpy part2_answer ~2
@@ -158,6 +356,13 @@ first_input_line_blank:
 unexpected_character:
 @cpy &str_unexpected_character_in_input_fmt ~1
 @cpy input_char ~2
+add input_line 1 ~3
+add input_column 0 ~4
+@jmp &printf_and_die
+
+inconsistent_columns:
+@cpy &str_inconsistenT_input_fmt ~1
+@cpy num_columns ~2
 add input_line 1 ~3
 add input_column 0 ~4
 @jmp &printf_and_die
@@ -442,6 +647,7 @@ hlt
 
 @str str_error: "Error: "
 @str str_first_input_line_blank: "First input line is blank/empty\n"
+@str str_inconsistenT_input_fmt: "Inconsistent input: first line is %d columns, but row %d is %d columns\n"
 @str str_unexpected_character_in_input_fmt: "Unexpected character '%C' in input at line %d, column %d\n"
 @str str_unexpected_end_of_file_fmt: "Unexpected end-of-file in input at line %d, column %d\n"
 @str str_assertion_failed_fmt: "Assertion failed on line %d\n"
@@ -465,5 +671,13 @@ hlt
 @raw num_columns_inv: 0
 @raw table_size:      0
 @raw table_size_inv:  0
-@raw num_rows:        1
+@raw num_rows:        0
+@raw current_column:  0
+@raw current_p1_column: 0
+@raw current_p1_column_inv: 0
+@raw p1_rows_left: 0
+@raw current_operator: 0
+@raw p1_accum: 0
+@raw p2_accum: 0
+@raw blank_column: 0
 first_row:

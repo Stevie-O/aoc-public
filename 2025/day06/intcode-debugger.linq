@@ -14,11 +14,11 @@ const bool WRITE_OUTPUT_LOG = false;
 const string OUTPUT_LOG_NAME = "output.txt";
 const string INPUT_FILE_PATH =
 	"example.txt"
-//	"../../puzzle_inputs/2025-06.txt"
+	//	"../../puzzle_inputs/2025-06.txt"
 	;
 const int INSTRUCTION_LIMIT =
 	//1_000_000_000
-	5_000
+	50_000
 	;
 
 static string WorkDir;
@@ -36,35 +36,16 @@ void Main()
 		));
 
 	cpu.AddBreakpoint("scan_first_row", _ =>
-	{
-		using var bpout = new BreakpointOutput();
-		bpout.WriteLine("Processing column {0}", ReadVariable(cpu, "num_columns") - ReadVariable(cpu, "r0_chars_left"));
-		bpout.WriteLine("rb = {0}", cpu.Toc);
-		bpout.WriteLine("Character: '{0}'", (char) cpu.Memory[cpu.Toc]);
-	});
-	cpu.AddBreakpoint("debug_checkpoint_1", _ =>
-	{
-		using var bpout = new BreakpointOutput();
-		bpout.WriteLine("debug_checkpoint_1 hit");
-		bpout.WriteLine("");
-		int first_row_address = _name2Addr["first_row"];
-		int num_columns = (int)ReadVariable(cpu, "num_columns");
-		int table_size = (int) ReadVariable(cpu, "table_size");
-		foreach (var var_name in new string[] {
-				"num_operations",
-				"num_columns",
-				"num_columns_inv",
-				"table_size",
-				"table_size_inv",
-				"num_rows",
-				})
-			bpout.WriteLine("{0} = {1}", var_name, ReadVariable(cpu, var_name));
-		bpout.WriteLine("");
-		bpout.WriteLine("Part 2 accumulators: {0}",
-					string.Join(" ", cpu.Memory.Skip(first_row_address + num_columns).Take(num_columns)));
-		bpout.WriteLine("Part 1 table: {0}", 
-					string.Join(" ", cpu.Memory.Skip(first_row_address + 2 * num_columns).Take(table_size)));
-	});
+{
+	using var bpout = new BreakpointOutput();
+	bpout.WriteLine("Processing column {0}", ReadVariable(cpu, "num_columns") - ReadVariable(cpu, "r0_chars_left"));
+	bpout.WriteLine("rb = {0}", cpu.Toc);
+	bpout.WriteLine("Character: '{0}'", (char)cpu.Memory[cpu.Toc]);
+});
+
+	//cpu.AddBreakpoint("debug_checkpoint_1", c => Year2025Day6_PrintState(c, "debug_checkpoint_1"));
+	cpu.AddBreakpoint("scan_next_row", c => Year2025Day6_PrintState(c, "scan_next_row"));
+	cpu.AddBreakpoint("found_operator_row", c => Year2025Day6_PrintState(c, "found_operator_row"));
 
 	StreamWriter stdout_file;
 	if (WRITE_OUTPUT_LOG)
@@ -110,7 +91,7 @@ class BreakpointOutput : IDisposable
 	{
 		ExecutionLogFile?.WriteLine("");
 	}
-	
+
 	public void WriteLine(string message) { Console.WriteLine(message); ExecutionLogFile?.WriteLine(message); }
 	public void WriteLine(string format, params object[] args) { Console.WriteLine(format, args); ExecutionLogFile?.WriteLine(format, args); }
 
@@ -141,6 +122,31 @@ void LoadMemoryMap(string path)
 memval_t ReadVariable(IntcodeCpu cpu, string name)
 {
 	return cpu.Memory[_name2Addr[name]];
+}
+
+void Year2025Day6_PrintState(IntcodeCpu cpu, string breakpointName)
+{
+	var bpout = new BreakpointOutput();
+	bpout.WriteLine("{0} breakpoint hit", breakpointName);
+	bpout.WriteLine("");
+	int first_row_address = _name2Addr["first_row"];
+	int num_columns = (int)ReadVariable(cpu, "num_columns");
+	int table_size = (int)ReadVariable(cpu, "table_size");
+	foreach (var var_name in new string[] {
+				"num_operations",
+				"num_columns",
+				"num_columns_inv",
+				"table_size",
+				"table_size_inv",
+				"num_rows",
+				})
+		bpout.WriteLine("{0} = {1}", var_name, ReadVariable(cpu, var_name));
+	bpout.WriteLine("");
+	bpout.WriteLine("Part 2 accumulators: {0}",
+				string.Join(" ", cpu.Memory.Skip(first_row_address + num_columns).Take(num_columns)));
+	bpout.WriteLine("Part 1 table: {0}",
+				string.Join(" ", cpu.Memory.Skip(first_row_address + 2 * num_columns + 1).Take(table_size)));
+
 }
 
 void Year2025Day_PrintGridState(IntcodeCpu cpu, string breakpointName)
