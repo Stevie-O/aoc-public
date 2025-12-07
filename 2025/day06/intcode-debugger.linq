@@ -34,12 +34,18 @@ void Main()
 	var cpu = ParseInput(new StringReader(
 			code_file
 		));
-
+		
 	cpu.DescribeToc = (_, newrb) =>
 	{
+		int num_columns_inv = (int)ReadVariable(cpu, "num_columns_inv");
 		int first_row_address = _name2Addr["first_row"];
 		if (newrb < first_row_address) return null;
 		int num_columns = (int)ReadVariable(cpu, "num_columns");
+		
+		// if num_columns_inv == 0, we're still reading the first row and num_columns isn't set correctly yet
+		if (num_columns_inv == 0) 
+			return string.Format("&first_row[{0}]", newrb - first_row_address);
+		
 		if (newrb < first_row_address + num_columns) return string.Format("&column_status[{0}]", newrb - first_row_address);
 		else if (newrb < first_row_address + 2 * num_columns) return string.Format("&p2_value[{0}]", newrb - (first_row_address + num_columns));
 		else if (newrb == first_row_address + 2 * num_columns) return "no man's land";
@@ -52,7 +58,7 @@ void Main()
 		int first_row_address = _name2Addr["first_row"];
 		int num_columns = (int)ReadVariable(cpu, "num_columns");
 		int table_size = (int)ReadVariable(cpu, "table_size");
-		bpout.WriteLine("loop_add: adding table[{0}] = {1} to p1_accum", cpu.Toc - first_row_address - 2 * num_columns, cpu.Memory[cpu.Toc]);
+		bpout.WriteLine("loop_add: adding table[{0}] = {1} to p1_accum", cpu.Toc - (first_row_address + 2 * num_columns + 1), cpu.Memory[cpu.Toc]);
 	});
 	cpu.AddBreakpoint("loop_mul", _ =>
 	{
@@ -60,7 +66,7 @@ void Main()
 		int first_row_address = _name2Addr["first_row"];
 		int num_columns = (int)ReadVariable(cpu, "num_columns");
 		int table_size = (int)ReadVariable(cpu, "table_size");
-		bpout.WriteLine("loop_mul: multiplying table[{0}] = {1} to p1_accum", cpu.Toc - first_row_address - 2 * num_columns, cpu.Memory[cpu.Toc]);
+		bpout.WriteLine("loop_mul: multiplying table[{0}] = {1} to p1_accum", cpu.Toc - (first_row_address + 2 * num_columns + 1), cpu.Memory[cpu.Toc]);
 	});
 
 
