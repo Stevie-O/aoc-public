@@ -255,7 +255,6 @@ add part1_answer p1_accum part1_answer
 # Set things up for when we encounter a '+' operator
 
 begin_operator_add:
-@cpy ~0 p2_accum
 rbo r0_chars_left
 rbo current_p1_column
 @cpy 0 p1_accum
@@ -287,10 +286,7 @@ add input_column 1 input_column
 @jle input_char 5 &unexpected_eof
 @jeq input_char 26 &unexpected_eof
 @jeq input_char '\n' &operator_row_eol
-jf r0_chars_left_inv &inconsistent_columns
-
-add r0_chars_left -1 r0_chars_left
-add r0_chars_left_inv 1 r0_chars_left_inv
+jf r0_chars_left &inconsistent_columns
 
 @jeq input_char 32 &continue_current_operator
 
@@ -307,10 +303,15 @@ add current_p1_column_inv -1 current_p1_column_inv
 @jmp &unexpected_character
 
 continue_current_operator:
+
 rbo num_columns_inv
 eq ~0 0 blank_column
 rbo num_columns
+
+add r0_chars_left -1 r0_chars_left
+add r0_chars_left_inv 1 r0_chars_left_inv
 rbo 1
+
 jt blank_column &read_next_operator_row_char
 @jeq current_operator '+' &continue_operator_add
 @jeq current_operator '*' &continue_operator_mul
@@ -329,6 +330,8 @@ mul p2_accum ~-1 p2_accum
 
 operator_row_eol:
 # FINALLY
+# we haven't added p2_accum to the part 2 answer yet, though
+add part2_answer p2_accum part2_answer
 
 
 #############################################################################

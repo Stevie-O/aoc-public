@@ -13,12 +13,12 @@ const bool WRITE_OUTPUT_LOG = false;
 
 const string OUTPUT_LOG_NAME = "output.txt";
 const string INPUT_FILE_PATH =
-	"example.txt"
-	//	"../../puzzle_inputs/2025-06.txt"
+	//"example.txt"
+		"../../puzzle_inputs/2025-06.txt"
 	;
 const int INSTRUCTION_LIMIT =
 	//1_000_000_000
-	50_000
+	5_000_000
 	;
 
 static string WorkDir;
@@ -35,7 +35,7 @@ void Main()
 			code_file
 		));
 		
-	cpu.DescribeToc = (_, newrb) =>
+	if (false)cpu.DescribeToc = (_, newrb) =>
 	{
 		int num_columns_inv = (int)ReadVariable(cpu, "num_columns_inv");
 		int first_row_address = _name2Addr["first_row"];
@@ -52,7 +52,7 @@ void Main()
 		else return string.Format("&p1_table[{0}]", newrb - (first_row_address + 2 * num_columns + 1));
 	};
 
-	cpu.AddBreakpoint("loop_add", _ =>
+	if (false)cpu.AddBreakpoint("loop_add", _ =>
 	{
 		using var bpout = new BreakpointOutput();
 		int first_row_address = _name2Addr["first_row"];
@@ -60,7 +60,7 @@ void Main()
 		int table_size = (int)ReadVariable(cpu, "table_size");
 		bpout.WriteLine("loop_add: adding table[{0}] = {1} to p1_accum", cpu.Toc - (first_row_address + 2 * num_columns + 1), cpu.Memory[cpu.Toc]);
 	});
-	cpu.AddBreakpoint("loop_mul", _ =>
+	if (false)cpu.AddBreakpoint("loop_mul", _ =>
 	{
 		using var bpout = new BreakpointOutput();
 		int first_row_address = _name2Addr["first_row"];
@@ -70,7 +70,7 @@ void Main()
 	});
 
 
-	cpu.AddBreakpoint("scan_first_row", _ =>
+	if (false)cpu.AddBreakpoint("scan_first_row", _ =>
 {
 	using var bpout = new BreakpointOutput();
 	bpout.WriteLine("Processing column {0}", ReadVariable(cpu, "num_columns") - ReadVariable(cpu, "r0_chars_left"));
@@ -79,8 +79,8 @@ void Main()
 });
 
 	//cpu.AddBreakpoint("debug_checkpoint_1", c => Year2025Day6_PrintState(c, "debug_checkpoint_1"));
-	cpu.AddBreakpoint("scan_next_row", c => Year2025Day6_PrintState(c, "scan_next_row"));
-	cpu.AddBreakpoint("found_operator_row", c => Year2025Day6_PrintState(c, "found_operator_row"));
+	//cpu.AddBreakpoint("scan_next_row", c => Year2025Day6_PrintState(c, "scan_next_row"));
+	//cpu.AddBreakpoint("found_operator_row", c => Year2025Day6_PrintState(c, "found_operator_row"));
 
 	StreamWriter stdout_file;
 	if (WRITE_OUTPUT_LOG)
