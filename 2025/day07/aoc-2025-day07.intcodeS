@@ -1,0 +1,470 @@
+jf 0 &start
+@raw raw_output: 0	 use_dle: 1
+start: rbo &grid
+# suppress compiler errors
+@reference assertion_failed
+
+
+####################################################
+#
+# AOC 2025 Day 7 Intcode Solver
+#
+# Input is in ASCII (UTF-32/UCS-4), output is in ASCII (UTF-32/UCS-4).
+#
+# Features:
+#
+# - Solves both parts
+# - No built-in limits on input size -- whatever your IntcodeVM can handle
+#
+# All CRs ('\r' aka 13 or 0x0D) in input are **completely ignored**.
+#
+# Since the input size is indeterminate, EOF must be reported via any of these means:
+#
+# - A blank line
+# - 0x00 (ASCII NUL)
+# - 0x1A (Ctrl-Z, ASCII SB; MS-DOS or CPM end-of-file indicator)
+# - 0x04 (Ctrl-D, ASCII EOT; Default EOF replacement character on *nix-style TTY drivers)
+# - a negative number (`EOF` constant returned by `fgetc`, `getc`, or `getchar`; see `stdio.h`)
+
+##########################
+#
+# EXECUTION OPTIONS BLOCK - Memory addresses 3-4
+#
+# [3]: raw_output. Default 0. 0 = ASCII output for integers. 1 = Output all integers as raw integer values.
+# [4]: use_dle:    Default 1. 1 = Prefix all raw integer outputs with a a DLE (0x10) character.
+#                             This flag will normally have no effect unless RawOutput is enabled.
+
+#############################################################################
+#
+#
+# PHASE 1: Read the first row.
+
+read_first_row:
+in input_char
+@jeq input_char '\r' &read_first_row
+add input_column 1 input_column
+@jeq input_char '.' &valid_char
+@jeq input_char 'S' &valid_char
+@jeq input_char '\n' &done_first_row
+@jle input_char 4 &unexpected_eof
+@jeq input_char 26 &unexpected_eof
+
+@jmp &unexpected_character
+
+valid_char:
+eq input_char 'S' ~0
+rbo 2
+@jmp &read_first_row
+
+done_first_row:
+jf input_column &first_input_line_blank
+add input_column -1 width
+mul width -2 next_row_rbo
+@cpy 0 input_column
+rbo next_row_rbo
+add next_row_rbo 1 next_row_rbo
+
+#############################################################################
+#
+# PHASE 2: Read the rest of the input
+
+read_next_row:
+# prep new_beams[0]
+@cpy 0 ~1
+
+read_next_character:
+in input_char
+@jeq input_char '\r' &read_next_character
+add input_column 1 input_column
+@jeq input_char '.' &phase2_empty
+@jeq input_char '^' &phase2_splitter
+@jeq input_char '\n' &phase2_eol
+
+@jle input_char 4 &phase2_eof
+@jeq input_char 26 &phase2_eof
+
+
+# prev_beams[x] = ~0
+
+# next_beams[x-1] = ~-1  (may have already been populated by a prior column in this row)
+# next_beams[x]   = ~1   (may have already been populated by a prior colum in this row) 
+# next_beams[x+1] = ~3   (not populated yet, contains garbage from a prior row)
+
+@jmp &unexpected_character
+
+### Phase 2: Splitter
+
+phase2_splitter:
+@jgt input_column width &width_mismatch
+
+jf ~0 &no_beam
+# part 1's answer is simply "how many splitters were hit?"
+add part1_answer 1 part1_answer
+@jeq input_column 1 &beam_off_edge
+@jeq input_column width &beam_off_edge
+# beam above is split to the left
+add ~-1 ~0 ~-1
+no_beam:
+
+# nothing goes straight down through this splitter
+@cpy 0 ~1
+# beam above is also split ot the right
+@cpy ~0 ~3
+
+rbo 2
+@jmp &read_next_character
+
+phase2_empty:
+@jgt input_column width &width_mismatch
+
+# beam above continues below
+add ~1 ~0 ~1
+# we contribute nothing to the column to our right
+@cpy 0 ~3
+
+rbo 2
+@jmp &read_next_character
+
+#################
+
+phase2_eol:
+
+@jle input_column width &width_mismatch
+@cpy 0 input_column
+rbo next_row_rbo
+@jmp &read_next_row
+
+phase2_eof:
+@jne input_column 1 &unexpected_eof
+
+# okay, that's the end.
+
+@cpy width columns_left
+part2_compute_loop:
+add part2_answer ~0 part2_answer
+rbo 2
+add columns_left -1 columns_left
+jt columns_left:0 &part2_compute_loop
+
+#############################################################################
+#
+# output answers here
+
+@cpy &str_part1_answer_fmt ~1
+@cpy part1_answer ~2
+@call &printf
+
+@cpy &str_part2_answer_fmt ~1
+@cpy part2_answer ~2
+@call &printf
+
+hlt
+
+#############################################################################
+#
+# error paths for main read loop
+
+first_input_line_blank:
+@cpy &str_first_input_line_blank ~1
+@jmp &print_error_and_die
+
+unexpected_character:
+@cpy &str_unexpected_character_in_input_fmt ~1
+@cpy input_char ~2
+add input_line 1 ~3
+add input_column 0 ~4
+@jmp &printf_error_and_die
+
+width_mismatch:
+@cpy &str_width_mismatch_fmt ~1
+@cpy width ~2
+add input_line 1 ~3
+add input_column 0 ~4
+@jmp &printf_error_and_die
+
+unexpected_eof:
+@cpy &str_unexpected_end_of_file_fmt ~1
+add input_line 1 ~2
+add input_column 0 ~3
+@jmp &printf_error_and_die
+
+beam_off_edge:
+@cpy &str_beam_off_edge ~1
+add input_line 1 ~2
+add input_column 0 ~3
+@jmp &printf_error_and_die
+
+###############################################################################
+
+# @fn 0 memset(dest, ch, count)
+
+# jf count &skip
+# @cpy dest rdi
+# loop:
+# @cpy ch rdi:*0
+# add rdi 1 rdi
+# add count -1 count
+# jt count &loop
+# skip:
+
+# @endfn
+
+
+############################################################################################
+# output.lib
+
+############################################################################################
+#
+#  output_integer(value)
+#
+# in ASCII mode, prints value in ASCII
+# in raw mode, outputs value directly
+# if raw mode is enabled and use_dle is on, raw values are prefixed with 0x10 (DLE)
+
+@fn 0 output_integer(value) global(print_decimal, raw_output, use_dle)
+
+jt raw_output &do_raw_output
+# this works ONLY when both routines have the same number of locals+parameters
+# UPDATE: tail-call doesn't actually work correctly because the relative base register (i.e. stack pointer) isn't adjusted correctly.
+@cpy value ~1
+@cpy &no_raw_output ~0
+@jmp &print_decimal
+
+do_raw_output:
+
+jf use_dle &no_dle
+out 16
+no_dle:
+out value
+
+no_raw_output:
+
+@endfn
+
+
+
+# print nonnegative decimal number (negative numbers will not be printed)
+# changing this to support negatives would be easy but I don't need it
+@fn 0 print_decimal(n) global(print_next_decimal_digit)
+jf n &print_zero
+@cpy n ~1
+@cpy 1 ~2
+@call &print_next_decimal_digit
+@jmp &exitfun
+print_zero: out '0'
+exitfun:
+@endfn
+
+@fn 1 print_next_decimal_digit(n, mask) local(dig, negmask)
+
+# PRECONDITIONS: n >= mask, mask is a power of 10
+# POSTCONDITIONS: upon return, ~1 has all powers of 10 greater than mask removed
+
+@cpy n ~1
+@jlt n mask &exitfn
+
+mul mask 10 ~2
+@call &print_next_decimal_digit
+@cpy ~1 n
+
+mul mask -1 negmask
+@cpy '0' dig
+compute_digit:
+@jlt n mask &done_compute_digit
+add dig 1 dig
+add n negmask n
+@jmp &compute_digit
+done_compute_digit:
+
+out dig
+
+exitfn:
+@cpy n return0
+@endfn
+
+
+# GOTCHA: return parameters and incoming arguments share stack space, so be careful
+
+#########################################################
+#
+# print_string(&str)
+
+@fn 0 print_string(string_address) local(strlen, tmpchar)
+
+@cpy string_address read_strlen
+add read_strlen:*0 0 strlen
+add 1 string_address string_reader
+message_print_loop:
+add string_reader:*0 0 tmpchar
+add string_reader 1 string_reader
+out tmpchar
+add strlen -1 strlen
+jt strlen &message_print_loop
+
+@endfn
+
+#########################################################
+#
+# printf(&str, ...)
+#
+# TODO: experiment with using NUL-terminated strings instead.
+
+@fn 0 printf(format_string, arg0, arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8, arg9) global(output_integer)
+
+@reference arg1 arg2 arg3 arg4 arg5 arg6 arg7 arg8 arg9
+@cpy 0 arg_shift
+@cpy format_string read_length_ptr
+@cpy read_length_ptr:*0 format_string_length
+jf format_string_length:0 &exit_fn
+add format_string 1 read_string_ptr
+
+process_next_char:
+@cpy read_string_ptr:*0 next_char
+add read_string_ptr 1 read_string_ptr
+add format_string_length -1 format_string_length
+@jeq next_char '%' &process_format
+out next_char:0
+@jmp &advance_loop
+process_format:
+@cpy read_string_ptr read_string_ptr2
+@cpy read_string_ptr2:*0 next_char
+add read_string_ptr 1 read_string_ptr
+add format_string_length -1 format_string_length
+@jeq next_char '%' &format_literal_percent
+@jeq next_char 'c' &format_char
+@jeq next_char 'C' &format_printable_char
+# assume %d by default
+
+format_integer:
+@cpy arg0 ~1
+@call &output_integer
+rbo 1
+add arg_shift -1 arg_shift
+@jmp &advance_loop
+
+format_literal_percent:
+out '%'
+@jmp &advance_loop
+
+format_printable_char:
+@jge arg0 32 &format_char
+out '\\'
+@jeq arg0 '\n' &escape_n
+@jeq arg0 '\r' &escape_r
+@jeq arg0 0 &escape_0
+@jeq arg0 '\t' &escape_t
+out '\\'
+out 'd'
+@jmp &format_integer
+escape_n:
+@cpy 'n' arg0
+@jmp &format_char
+escape_r:
+@cpy 'r' arg0
+@jmp &format_char
+escape_0:
+@cpy '0' arg0
+@jmp &format_char
+escape_t:
+@cpy 't' arg0
+@jmp &format_char
+
+format_char:
+out arg0
+rbo 1
+add arg_shift -1 arg_shift
+@jmp &advance_loop
+
+advance_loop:
+jt format_string_length &process_next_char
+
+exit_fn:
+rbo arg_shift:0
+@endfn
+
+#####################################
+#
+# error routines. call with @jmp, not @call (well, @call is fine, but it's a waste)
+
+####################################
+#
+# assertion_failed(line number)
+#
+# Print out "Error: Assertion failed on line <line number>" and halt.
+
+assertion_failed:
+@cpy ~1 ~2
+@cpy &str_assertion_failed_fmt ~1
+@jmp &printf_error_and_die
+
+#####################################
+#
+# print_error_and_die(&str_message)
+#
+# Outputs "Error: " followed by the supplied message, then halts.
+#
+
+print_error_and_die:
+rbo 2
+@cpy &str_error ~1
+@call &print_string
+rbo -2
+# fall through to print_and_die
+@reference print_and_die
+
+#####################################
+#
+# print_and_die(&str_message)
+#
+# Outputs the supplied message, then halts.
+
+print_and_die:
+@call &print_string
+hlt
+
+#####################################
+#
+# printf_error_and_die(&str_format, ...)
+#
+# Outputs "Error: " followed by the formatted message, then halts.
+
+printf_error_and_die:
+
+# move the stack pointer far, far away so we don't trash the incoming parameters
+rbo 100
+@cpy &str_error ~1
+@call &print_string
+rbo -100
+@reference printf_and_die
+
+# fall through to print_and_die
+
+#####################################
+#
+# printf_and_die(&str_format, ...)
+#
+# Outputs the formatted message, then halts.
+
+printf_and_die:
+@call &printf
+hlt
+
+@str str_error: "Error: "
+@str str_first_input_line_blank: "First input line is blank/empty\n"
+@str str_width_mismatch_fmt: "Input is not square: first row is %d wide, but row %d is %d wide\n"
+@str str_unexpected_character_in_input_fmt: "Unexpected character '%C' in input at line %d, column %d\n"
+@str str_unexpected_end_of_file_fmt: "Unexpected end-of-file in input at line %d, column %d\n"
+# lots of effort to track this
+@str str_beam_off_edge: "Beam splits off edge of manifold at line %d, column %d\n"
+#@str str_assertion_failed_fmt: "Assertion failed on line %d\n"
+@str str_part1_answer_fmt: "Part 1: %d\n"
+@str str_part2_answer_fmt: "Part 2: %d\n"
+@str str_assertion_failed_fmt: "Assertion failed on line %d\n"
+
+@raw part1_answer:0 part2_answer:0
+@raw input_line:0 input_column:0 
+@raw input_char: 0
+@raw width: 0
+@raw next_row_rbo: 0
+
+grid:
