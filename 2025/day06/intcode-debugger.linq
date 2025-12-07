@@ -7,7 +7,7 @@
   <Namespace>System.Globalization</Namespace>
 </Query>
 
-const bool WRITE_EXECLOG = true;
+const bool WRITE_EXECLOG = false;
 const bool TRACE_INPUT = true;
 const bool WRITE_OUTPUT_LOG = false;
 
@@ -80,7 +80,21 @@ void Main()
 
 	//cpu.AddBreakpoint("debug_checkpoint_1", c => Year2025Day6_PrintState(c, "debug_checkpoint_1"));
 	//cpu.AddBreakpoint("scan_next_row", c => Year2025Day6_PrintState(c, "scan_next_row"));
+
 	//cpu.AddBreakpoint("found_operator_row", c => Year2025Day6_PrintState(c, "found_operator_row"));
+	/*
+	int operator_start_column = 0;
+	cpu.AddBreakpoint("begin_operator_add", _ => { operator_start_column = (int)ReadVariable(cpu, "input_column"); });
+	cpu.AddBreakpoint("begin_operator_mul", _ => { operator_start_column = (int) ReadVariable(cpu, "input_column"); });
+
+	cpu.AddBreakpoint("debug_update_part2_answer", _ =>
+	{
+		var p2_accum = ReadVariable(cpu, "p2_accum");
+		//var column = ReadVariable(cpu, "input_column");
+		//Console.WriteLine("p2_accum at column {0} = {1}", column, p2_accum);
+		Console.WriteLine("Subtotal for operator at column {0}: {1}", operator_start_column - 1, p2_accum);
+	});
+	*/
 
 	StreamWriter stdout_file;
 	if (WRITE_OUTPUT_LOG)
@@ -100,9 +114,9 @@ void Main()
 		//,(5, 1) // debug_range_build
 		);
 
-	var day3_input = File.ReadAllText(Path.Combine(dir, INPUT_FILE_PATH));
+	var day6_input = File.ReadAllText(Path.Combine(dir, INPUT_FILE_PATH));
 
-	cpu = cpu.WithIO(new IntcodeInput(day3_input),
+	cpu = cpu.WithIO(new IntcodeInput(day6_input),
 		PrintOutput
 	);
 
@@ -184,7 +198,7 @@ void Year2025Day6_PrintState(IntcodeCpu cpu, string breakpointName)
 	bpout.WriteLine("Part 2 column status: {0}",
 				string.Join(" ", cpu.Memory.Skip(first_row_address).Take(num_columns)));
 	bpout.WriteLine("Part 2 accumulators: {0}",
-				string.Join(" ", cpu.Memory.Skip(first_row_address + num_columns).Take(num_columns)));
+				string.Join(", ", cpu.Memory.Skip(first_row_address + num_columns).Take(num_columns)));
 	bpout.WriteLine("Part 1 table: {0}",
 				string.Join(" ", cpu.Memory.Skip(first_row_address + 2 * num_columns + 1).Take(table_size)));
 
