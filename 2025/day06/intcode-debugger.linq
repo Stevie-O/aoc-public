@@ -35,6 +35,24 @@ void Main()
 			code_file
 		));
 
+	cpu.AddBreakpoint("loop_add", _ =>
+	{
+		using var bpout = new BreakpointOutput();
+		int first_row_address = _name2Addr["first_row"];
+		int num_columns = (int)ReadVariable(cpu, "num_columns");
+		int table_size = (int)ReadVariable(cpu, "table_size");
+		bpout.WriteLine("loop_add: adding table[{0}] = {1} to p1_accum", cpu.Toc - first_row_address - 2 * num_columns, cpu.Memory[cpu.Toc]);
+	});
+	cpu.AddBreakpoint("loop_mul", _ =>
+	{
+		using var bpout = new BreakpointOutput();
+		int first_row_address = _name2Addr["first_row"];
+		int num_columns = (int)ReadVariable(cpu, "num_columns");
+		int table_size = (int)ReadVariable(cpu, "table_size");
+		bpout.WriteLine("loop_mul: multiplying table[{0}] = {1} to p1_accum", cpu.Toc - first_row_address - 2 * num_columns, cpu.Memory[cpu.Toc]);
+	});
+
+
 	cpu.AddBreakpoint("scan_first_row", _ =>
 {
 	using var bpout = new BreakpointOutput();
@@ -151,85 +169,6 @@ void Year2025Day6_PrintState(IntcodeCpu cpu, string breakpointName)
 				string.Join(" ", cpu.Memory.Skip(first_row_address + 2 * num_columns + 1).Take(table_size)));
 
 }
-
-void Year2025Day_PrintGridState(IntcodeCpu cpu, string breakpointName)
-{
-	if (ExecutionLogFile != null)
-	{
-		ExecutionLogFile.WriteLine("");
-		ExecutionLogFile.WriteLine("{0} breakpoint hit", breakpointName);
-		ExecutionLogFile.WriteLine("");
-	}
-	int width = (int)ReadVariable(cpu, "width");
-	int height = (int)ReadVariable(cpu, "height");
-	int grid_address = (int)_name2Addr["grid"];
-
-	Console.WriteLine("{0} hit", breakpointName);
-	Console.WriteLine();
-	Console.WriteLine("current_pass = {0}", ReadVariable(cpu, "current_pass"));
-	Console.WriteLine("list_head = {0}", ReadVariable(cpu, "list_head"));
-	Console.WriteLine("list_count = {0}", ReadVariable(cpu, "list_count"));
-	Console.WriteLine("new_list_head = {0}", ReadVariable(cpu, "new_list_head"));
-	Console.WriteLine("width = {0}, height = {1}", width, height);
-	Console.WriteLine();
-	var sb = new StringBuilder();
-	try
-	{
-		var read_ptr = grid_address;
-		var cell_id = 0;
-		for (int row = 0; row < height; row++)
-		{
-			sb.AppendFormat("[{0,6}] ", cell_id);
-			for (int col = 0; col < width; col++)
-			{
-				sb.Append("{ ");
-				sb.AppendFormat("{0,4}", cpu.Memory[read_ptr++]);
-				sb.AppendFormat("{0,4}", cpu.Memory[read_ptr++]);
-				sb.AppendFormat("{0,4}", cpu.Memory[read_ptr++]);
-				sb.AppendFormat("{0,4}", cpu.Memory[read_ptr++]);
-				sb.Append("} ");
-				cell_id++;
-			}
-			Console.WriteLine(sb.ToString());
-			sb.Clear();
-		}
-	}
-	finally
-	{
-		Console.WriteLine(sb.ToString());
-	}
-}
-
-void DebugDay22PatternMemory(IntcodeCpu initial_cpu, string day22_prices)
-{
-	using var stdout_file = new StreamWriter(Path.Combine(WorkDir, "pattern_mem.txt"), false);
-
-	int counter = 0;
-	var pricelists = day22_prices.Split(Environment.NewLine + Environment.NewLine);
-	foreach (var pricelist in pricelists)
-	{
-		if (WRITE_EXECLOG) ExecutionLogFile = new ExecutionLogFileWriter(new StreamWriter(
-				Path.Combine(Path.GetDirectoryName(Util.CurrentQueryPath), @"intcode-execlog.txt"), false, new UTF8Encoding(false))
-				);
-
-		var cpu = initial_cpu.Clone().WithIO(
-				new IntcodeInput(pricelist),
-				PrintOutput
-		);
-
-		RunUntilHalt(cpu, false);
-		for (int i = 0; i < 260642; i++)
-		{
-			stdout_file.WriteLine(cpu.Memory[1267 + i]);
-		}
-		stdout_file.WriteLine();
-		stdout_file.Flush();
-		counter++;
-		ExecutionLogFile?.Dispose();
-		Console.WriteLine("Wrote {0} pattern tables", counter);
-	}
-}
-
 
 // ALL THIS FUCKING WORK because BinarySearch doesn't just let you pass a callback routine
 static class DelegateComparer

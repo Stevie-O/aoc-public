@@ -281,6 +281,7 @@ add part1_answer p1_accum part1_answer
 #
 
 read_next_operator_row_char:
+rbo 1
 in input_char
 add input_column 1 input_column
 @jeq input_char '\r' &read_next_operator_row_char
