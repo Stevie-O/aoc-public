@@ -30,10 +30,21 @@ void Main()
 	);
 	var code_file = File.ReadAllText(Path.Combine(dir, "a.intcode"));
 	LoadMemoryMap(Path.Combine(dir, "a.map"));
-
+	
 	var cpu = ParseInput(new StringReader(
 			code_file
 		));
+
+	cpu.DescribeToc = (_, newrb) =>
+	{
+		int first_row_address = _name2Addr["first_row"];
+		if (newrb < first_row_address) return null;
+		int num_columns = (int)ReadVariable(cpu, "num_columns");
+		if (newrb < first_row_address + num_columns) return string.Format("&column_status[{0}]", newrb - first_row_address);
+		else if (newrb < first_row_address + 2 * num_columns) return string.Format("&p2_value[{0}]", newrb - (first_row_address + num_columns));
+		else if (newrb == first_row_address + 2 * num_columns) return "no man's land";
+		else return string.Format("&p1_table[{0}]", newrb - (first_row_address + 2 * num_columns + 1));
+	};
 
 	cpu.AddBreakpoint("loop_add", _ =>
 	{
@@ -161,6 +172,9 @@ void Year2025Day6_PrintState(IntcodeCpu cpu, string breakpointName)
 				})
 		bpout.WriteLine("{0} = {1}", var_name, ReadVariable(cpu, var_name));
 	bpout.WriteLine("");
+	bpout.WriteLine("Address of column-status: {0}", first_row_address);
+	bpout.WriteLine("Address of part 2 accumulators: {0}", first_row_address + num_columns);
+	bpout.WriteLine("Address of part 1 table: {0}", first_row_address + 2 * num_columns + 1);
 	bpout.WriteLine("Part 2 column status: {0}",
 				string.Join(" ", cpu.Memory.Skip(first_row_address).Take(num_columns)));
 	bpout.WriteLine("Part 2 accumulators: {0}",
@@ -358,6 +372,7 @@ class IntcodeCpu
 		return new IntcodeCpu((memval_t[])(Memory.Clone()), Input, Output, Pc, Toc);
 	}
 
+	public Func<IntcodeCpu, int, string> DescribeToc;
 	Dictionary<int, Action<IntcodeCpu>> _breakpoints = new Dictionary<int, System.Action<UserQuery.IntcodeCpu>>();
 	public void AddBreakpoint(string name, Action<IntcodeCpu> callback)
 		=> AddBreakpoint(_name2Addr[name], callback);
@@ -465,7 +480,16 @@ class IntcodeCpu
 		var newToc = (int)(Toc + a);
 		trace.SetArguments(newToc);
 
-		ExecutionLogFile?.LogExecutionMessage($"New TOC = {newToc}");
+		if (ExecutionLogFile != null)
+		{
+			var sb = new StringBuilder();
+			sb.Append("New RB = ").Append(newToc);
+			var toc_description = DescribeToc?.Invoke(this, newToc);
+			if (toc_description != null)
+				sb.Append(" (").Append(toc_description).Append(")");
+
+			ExecutionLogFile.LogExecutionMessage(sb.ToString());
+		}
 
 		this.Pc = pc;
 		this.Toc = newToc;
