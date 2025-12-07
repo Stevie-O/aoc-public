@@ -1,0 +1,469 @@
+jf 0 &start
+@raw raw_output: 0	 use_dle: 1 
+start: rbo &first_row
+@reference assertion_failed
+@reference debug_checkpoint_1
+@reference num_rows
+@reference print_and_die
+
+
+####################################################
+#
+# AOC 2025 Day 6 Intcode Solver
+#
+# Input is in ASCII (UTF-32/UCS-4), output is in ASCII (UTF-32/UCS-4).
+#
+# Ironically, part 2 is easier on Intcode than part 1 is.
+#
+# Features:
+#
+# - Solves both parts
+# - No built-in limits on input size -- whatever your IntcodeVM can handle
+#
+# All CRs ('\r' aka 13 or 0x0D) in input are **completely ignored**.
+#
+# The following conditions are all interpreted as EOF:
+#
+# - 0x00 (ASCII NUL)
+# - 0x1A (Ctrl-Z, ASCII SB; MS-DOS or CPM end-of-file indicator)
+# - 0x04 (Ctrl-D, ASCII EOT; Default EOF replacement character on *nix-style TTY drivers)
+# - a negative number (`EOF` constant returned by `fgetc`, `getc`, or `getchar`; see `stdio.h`)
+
+##########################
+#
+# EXECUTION OPTIONS BLOCK - Memory addresses 3-6
+#
+# [3]: raw_output: Default 0. 0 = ASCII output for integers. 1 = Output all integers as raw integer values.
+# [4]: use_dle:    Default 1. 1 = Prefix all raw integer outputs with a a DLE (0x10) character.
+#                             This flag will normally have no effect unless RawOutput is enabled.
+
+#############################################################################
+#
+# Read puzzle input
+#
+
+# PHASE 1: First row.
+
+read_first_row:
+in input_char
+@jeq input_char '\r' &read_first_row
+add input_column 1 input_column
+@jeq input_char '\n' &done_first_row
+@cpy input_char ~0
+rbo 1
+add num_columns 1 num_columns
+
+eq input_char 32 is_space
+lt is_space was_space started_new_column
+@cpy is_space was_space
+# if is_space < was_space, then we've started a new column
+add num_operations started_new_column:0 num_operations
+jt is_space &read_first_row
+@jle input_char 4 &unexpected_eof
+@jeq input_char 26 &unexpected_eof
+
+@jlt input_char '0' &unexpected_character
+@jgt input_char '9' &unexpected_character
+
+@jmp &read_first_row
+
+# Post-processing needed for first row:
+
+done_first_row:
+jf num_operations &first_input_line_blank
+add input_line 1 input_line
+@cpy 0 input_column
+mul num_columns -1 num_columns_inv
+rbo num_columns_inv
+
+# okay, this is VERY TRICKY
+
+# the idea goes like this:
+# let's say the first row is W columns.
+# we have W values starting at &first_row (~0) that are the characters of the input row
+# we will then have W values starting at &first_row + W that are the column values for part 2
+# then we will have values starting at &first_row + 2W that are the horizontal values for part 1
+
+@cpy num_columns   r0_chars_left
+mul num_columns -1 r0_chars_left_inv
+@cpy 1 was_space
+
+
+scan_first_row:
+
+# make sure the following variables are correct:
+# - not_space  (1 if the input character is a space, else 0)
+# - table_size (incremented if we've started a new part 1 column)
+eq ~0 32 is_space
+eq is_space 0 not_space
+lt is_space was_space started_new_column
+@cpy is_space was_space
+
+add table_size started_new_column table_size
+mul table_size -1 table_size_inv
+
+eq is_space 0 not_space
+add ~0 -'0' digit_value
+# write the value to the corresponding part2 column
+rbo num_columns
+mul digit_value not_space ~0
+
+jt is_space &no_part1_data
+
+# update the value for the corresponding part1 column
+rbo r0_chars_left
+rbo table_size
+mul ~0 10 ~0
+add ~0 digit_value ~0
+rbo table_size_inv
+rbo r0_chars_left_inv
+
+no_part1_data:
+
+rbo num_columns_inv
+
+rbo 1
+add r0_chars_left     -1 r0_chars_left
+add r0_chars_left_inv  1 r0_chars_left_inv
+jt r0_chars_left &scan_first_row
+
+#################################################################
+
+# at this point, 
+
+debug_checkpoint_1:
+hlt
+
+#############################################################################
+#
+# output answers here
+
+@cpy &str_part1_answer_fmt ~1
+@cpy part1_answer ~2
+@call &printf
+
+@cpy &str_part2_answer_fmt ~1
+@cpy part2_answer ~2
+@call &printf
+
+hlt
+
+#############################################################################
+# input errors
+
+first_input_line_blank:
+@cpy &str_first_input_line_blank ~1
+@jmp &print_error_and_die
+
+unexpected_character:
+@cpy &str_unexpected_character_in_input_fmt ~1
+@cpy input_char ~2
+add input_line 1 ~3
+add input_column 0 ~4
+@jmp &printf_and_die
+
+# EOF is never expected for this program
+unexpected_eof:
+@cpy &str_unexpected_end_of_file_fmt ~1
+add input_line 1 ~2
+add input_column 0 ~3
+@jmp &printf_and_die
+
+###############################################################################
+
+# @fn 0 memset(dest, ch, count)
+
+# jf count &skip
+# @cpy dest rdi
+# loop:
+# @cpy ch rdi:*0
+# add rdi 1 rdi
+# add count -1 count
+# jt count &loop
+# skip:
+
+# @endfn
+
+############################################################################################
+# input.lib
+# version 20251205-0001
+
+# 0-based line and column number for stdin
+@raw input_line: 0 input_column: 0
+
+############################################################################################
+# output.lib
+# version 20251205-0001
+
+############################################################################################
+#
+#  output_integer(value)
+#
+# in ASCII mode, prints value in ASCII
+# in raw mode, outputs value directly
+# if raw mode is enabled and use_dle is on, raw values are prefixed with 0x10 (DLE)
+
+@fn 0 output_integer(value) global(print_decimal, raw_output, use_dle)
+
+jt raw_output &do_raw_output
+# this works ONLY when both routines have the same number of locals+parameters
+# UPDATE: tail-call doesn't actually work correctly because the relative base register (i.e. stack pointer) isn't adjusted correctly.
+@cpy value ~1
+@cpy &no_raw_output ~0
+@jmp &print_decimal
+
+do_raw_output:
+
+jf use_dle &no_dle
+out 16
+no_dle:
+out value
+
+no_raw_output:
+
+@endfn
+
+# print possibly-negative decimal number
+print_decimal:
+lt ~1 0 _print_decimal_is_negative
+jf _print_decimal_is_negative:0 &print_nonnegative_decimal
+out '-'
+mul ~1 -1 ~1
+# fall through to print_nonnegative_decimal
+
+# print nonnegative decimal number (negative numbers will not be printed)
+# changing this to support negatives would be easy but I don't need it
+@fn 0 print_nonnegative_decimal(n) global(print_next_decimal_digit)
+jf n &print_zero
+@cpy n ~1
+@cpy 1 ~2
+@call &print_next_decimal_digit
+@jmp &exitfun
+print_zero: out '0'
+exitfun:
+@endfn
+
+@fn 1 print_next_decimal_digit(n, mask) local(dig, negmask)
+
+# PRECONDITIONS: n >= mask, mask is a power of 10
+# POSTCONDITIONS: upon return, ~1 has all powers of 10 greater than mask removed
+
+@cpy n ~1
+@jlt n mask &exitfn
+
+mul mask 10 ~2
+@call &print_next_decimal_digit
+@cpy ~1 n
+
+mul mask -1 negmask
+@cpy '0' dig
+compute_digit:
+@jlt n mask &done_compute_digit
+add dig 1 dig
+add n negmask n
+@jmp &compute_digit
+done_compute_digit:
+
+out dig
+
+exitfn:
+@cpy n return0
+@endfn
+
+
+# GOTCHA: return parameters and incoming arguments share stack space, so be careful
+
+#########################################################
+#
+# print_string(&str)
+
+@fn 0 print_string(string_address) local(strlen, tmpchar)
+
+@cpy string_address read_strlen
+add read_strlen:*0 0 strlen
+add 1 string_address string_reader
+message_print_loop:
+add string_reader:*0 0 tmpchar
+add string_reader 1 string_reader
+out tmpchar
+add strlen -1 strlen
+jt strlen &message_print_loop
+
+@endfn
+
+#########################################################
+#
+# printf(&str, ...)
+#
+# TODO: experiment with using NUL-terminated strings instead.
+
+@fn 0 printf(format_string, arg0, arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8, arg9) global(output_integer)
+
+@reference arg1 arg2 arg3 arg4 arg5 arg6 arg7 arg8 arg9
+@cpy 0 arg_shift
+@cpy format_string read_length_ptr
+@cpy read_length_ptr:*0 format_string_length
+jf format_string_length:0 &exit_fn
+add format_string 1 read_string_ptr
+
+process_next_char:
+@cpy read_string_ptr:*0 next_char
+add read_string_ptr 1 read_string_ptr
+add format_string_length -1 format_string_length
+@jeq next_char '%' &process_format
+out next_char:0
+@jmp &advance_loop
+process_format:
+@cpy read_string_ptr read_string_ptr2
+@cpy read_string_ptr2:*0 next_char
+add read_string_ptr 1 read_string_ptr
+add format_string_length -1 format_string_length
+@jeq next_char '%' &format_literal_percent
+@jeq next_char 'c' &format_char
+@jeq next_char 'C' &format_printable_char
+# assume %d by default
+
+format_integer:
+@cpy arg0 ~1
+@call &output_integer
+rbo 1
+add arg_shift -1 arg_shift
+@jmp &advance_loop
+
+format_literal_percent:
+out '%'
+@jmp &advance_loop
+
+format_printable_char:
+@jge arg0 32 &format_char
+out '\\'
+@jeq arg0 '\n' &escape_n
+@jeq arg0 '\r' &escape_r
+@jeq arg0 0 &escape_0
+@jeq arg0 '\t' &escape_t
+out '\\'
+out 'd'
+@jmp &format_integer
+escape_n:
+@cpy 'n' arg0
+@jmp &format_char
+escape_r:
+@cpy 'r' arg0
+@jmp &format_char
+escape_0:
+@cpy '0' arg0
+@jmp &format_char
+escape_t:
+@cpy 't' arg0
+@jmp &format_char
+
+format_char:
+out arg0
+rbo 1
+add arg_shift -1 arg_shift
+@jmp &advance_loop
+
+advance_loop:
+jt format_string_length &process_next_char
+
+exit_fn:
+rbo arg_shift:0
+@endfn
+
+
+
+
+#####################################
+#
+# error routines. call with @jmp, not @call (well, @call is fine, but it's a waste)
+
+####################################
+#
+# assertion_failed(line number)
+#
+# Print out "Error: Assertion failed on line <line number>" and halt.
+
+assertion_failed:
+@cpy ~1 ~2
+@cpy &str_assertion_failed_fmt ~1
+@jmp &printf_error_and_die
+
+#####################################
+#
+# print_error_and_die(&str_message)
+#
+# Outputs "Error: " followed by the supplied message, then halts.
+#
+
+print_error_and_die:
+rbo 2
+@cpy &str_error ~1
+@call &print_string
+rbo -2
+# fall through to print_and_die
+
+#####################################
+#
+# print_and_die(&str_message)
+#
+# Outputs the supplied message, then halts.
+
+print_and_die:
+@call &print_string
+hlt
+
+#####################################
+#
+# printf_error_and_die(&str_format, ...)
+#
+# Outputs "Error: " followed by the formatted message, then halts.
+
+printf_error_and_die:
+# move the stack pointer far, far away so we don't trash the incoming parameters
+rbo 100
+@cpy &str_error ~1
+@call &print_string
+rbo -100
+
+# fall through to print_and_die
+
+#####################################
+#
+# printf_and_die(&str_format, ...)
+#
+# Outputs the formatted message, then halts.
+
+printf_and_die:
+@call &printf
+hlt
+
+###################################################################################
+# Strings
+
+@str str_error: "Error: "
+@str str_first_input_line_blank: "First input line is blank/empty\n"
+@str str_unexpected_character_in_input_fmt: "Unexpected character '%C' in input at line %d, column %d\n"
+@str str_unexpected_end_of_file_fmt: "Unexpected end-of-file in input at line %d, column %d\n"
+@str str_assertion_failed_fmt: "Assertion failed on line %d\n"
+@str str_part1_answer_fmt: "Part 1: %d\n"
+@str str_part2_answer_fmt: "Part 2: %d\n"
+
+###################################################################################
+
+@raw input_char: 0 was_space: 1 is_space: 0 not_space: 0 digit_value: 0
+@raw part1_answer:0 part2_answer:0
+
+# row 0 scan variables
+@raw r0_chars_left:     0
+@raw r0_chars_left_inv: 0
+
+
+# number of columns, for part 1
+@raw num_operations: 0
+# number of columns, for part 2
+@raw num_columns:     0
+@raw num_columns_inv: 0
+@raw table_size:      0
+@raw table_size_inv:  0
+@raw num_rows:        1
+first_row:
