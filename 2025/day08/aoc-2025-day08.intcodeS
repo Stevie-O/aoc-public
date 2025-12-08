@@ -179,7 +179,7 @@ advance_box2:
 # advance "box2"
 
 add box2_id 1 box2_id
-@jgt box2_id box_count &last_box2
+@jge box2_id box_count &last_box2
 
 rbo pair_table_to_next_box2:0
 # pair_table_to_next_box2 should not be zero at this point
@@ -199,11 +199,9 @@ jt pair_table_to_next_box2 &failed_assertion_2
 
 # move box1 forward 1
 add box1_id 1 box1_id
-@jgt box1_id max_box1:0 &last_box1
+@jge box1_id max_box1:0 &last_box1
 
 rbo pair_table_to_next_box1:0
-add box1_to_pair_table -4 box1_to_pair_table
-add pair_table_to_next_box1 4 pair_table_to_next_box1
 @jmp &next_box1
 
 last_box1:
