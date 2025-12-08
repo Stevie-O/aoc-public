@@ -38,7 +38,10 @@ void Main()
 			code_file
 		));
 
-	cpu.AddBreakpoint("read_next_box", c => Year2025Day8_PrintBoxTable(cpu, "read_next_box"));
+	cpu.AddBreakpoint("fn_build_pairs__next_box2", c => Year2025Day8_DebugPhase2Pointers(cpu, "build_pairs::next_box2"));
+	cpu.AddBreakpoint("fn_build_pairs__next_box1", c => Year2025Day8_DebugPhase2Pointers(cpu, "build_pairs::next_box1"));
+	cpu.AddBreakpoint("fn_build_pairs__advance_box2", c => Year2025Day8_DebugPairAdded(cpu, "build_pairs::advance_box2"));
+	if (false) cpu.AddBreakpoint("read_next_box", c => Year2025Day8_PrintBoxTable(cpu, "read_next_box"));
 	/*
 	{
 		var bpout = new BreakpointOutput();
@@ -56,10 +59,15 @@ void Main()
 		table.Dump();
 	});
 	*/
-	if (false) cpu.DescribeToc = (_, newrb) =>
+	cpu.DescribeToc = (_, newrb) =>
 	{
-		int num_columns_inv = (int)ReadVariable(cpu, "num_columns_inv");
-		int first_row_address = _name2Addr["first_row"];
+		int boxes_address = _name2Addr["boxes"];
+		int box_table_size = (int)ReadVariable(cpu, "box_table_size");
+		int pairs_address = boxes_address + box_table_size;
+		if (newrb < boxes_address + box_table_size) return $"&boxes[{(newrb - boxes_address) / 1}]";
+		return $"&pairs[{(newrb - pairs_address) / 1}]";
+/*
+int first_row_address = _name2Addr["first_row"];
 		if (newrb < first_row_address) return null;
 		int num_columns = (int)ReadVariable(cpu, "num_columns");
 
@@ -71,6 +79,7 @@ void Main()
 		else if (newrb < first_row_address + 2 * num_columns) return string.Format("&p2_value[{0}]", newrb - (first_row_address + num_columns));
 		else if (newrb == first_row_address + 2 * num_columns) return "no man's land";
 		else return string.Format("&p1_table[{0}]", newrb - (first_row_address + 2 * num_columns + 1));
+*/
 	};
 
 	if (false) cpu.AddBreakpoint("loop_add", _ =>
@@ -144,12 +153,12 @@ void Main()
 				Path.Combine(Path.GetDirectoryName(Util.CurrentQueryPath), @"intcode-execlog.txt"), false, new UTF8Encoding(false))
 				);
 		RunUntilHalt(cpu, instruction_limit: INSTRUCTION_LIMIT);
-		
+
 		var size = (int)ReadVariable(cpu, "box_table_size");
 
-		foreach (var var_name in new string[]{ "box_count", "box_table_size","box_table_size_inv"})
+		foreach (var var_name in new string[] { "box_count", "box_table_size", "box_table_size_inv" })
 			ReadVariable(cpu, var_name).Dump(var_name);
-		cpu.Memory.Skip(_name2Addr["boxes"]).Take(size) .Dump("boxes data");
+		cpu.Memory.Skip(_name2Addr["boxes"]).Take(size).Dump("boxes data");
 	}
 	finally
 	{
@@ -195,6 +204,72 @@ void LoadMemoryMap(string path)
 memval_t ReadVariable(IntcodeCpu cpu, string name)
 {
 	return cpu.Memory[_name2Addr[name]];
+}
+
+void Year2025Day8_DebugPhase2Pointers(IntcodeCpu cpu, string breakpointName)
+{
+	var bpout = new BreakpointOutput();
+	bpout.WriteLine("{0} breakpoint hit", breakpointName);
+	bpout.WriteLine("");
+	bpout.WriteLine("rb = {0} ({1})", cpu.Toc, cpu.DescribeToc(cpu, cpu.Toc));
+	foreach (var var_name in new string[] {
+				"box1_id", "box2_id",
+				"box1_to_pair_table",
+				"pair_table_to_next_box1",
+				"box2_to_pair_table",
+				"pair_table_to_next_box2"
+				})
+	{
+		string effective_name = var_name;
+		var scoped_name = "fn_build_pairs__" + var_name;
+		if (_name2Addr.ContainsKey(scoped_name))
+			effective_name = scoped_name;
+		bpout.WriteLine("{0} = {1}", var_name, ReadVariable(cpu, effective_name));
+	}
+	bpout.WriteLine("");
+}
+
+
+void Year2025Day8_DebugPairAdded(IntcodeCpu cpu, string breakpointName)
+{
+	var bpout = new BreakpointOutput();
+	bpout.WriteLine("{0} breakpoint hit", breakpointName);
+	bpout.WriteLine("");
+	//bpout.WriteLine("RB = {0}", cpu.Toc);
+	int boxes_address = _name2Addr["boxes"];
+	int box_count = (int)ReadVariable(cpu, "box_count");
+	int box_table_size = (int)ReadVariable(cpu, "box_table_size");
+	int pairs_address = boxes_address + box_table_size;
+	int pair_count = (int)ReadVariable(cpu, "pair_count");
+	int pair_table_size = (int)ReadVariable(cpu, "pair_table_size");
+	int heap_size = (int)ReadVariable(cpu, "heap_size");
+	bpout.WriteLine("rb = pair_table + {0}", cpu.Toc - pairs_address);
+	foreach (var var_name in new string[] {
+				"fn_build_pairs__box1_id", "fn_build_pairs__box2_id",
+				"box_count",
+				"box_table_size",
+				"box_table_size_inv",
+				"heap_size",
+				"heap_size_inv",
+				"pair_count",
+				"pair_table_size",
+				"pair_table_size_inv",
+				})
+		bpout.WriteLine("var {0} = {1}", var_name, ReadVariable(cpu, var_name));
+	//bpout.WriteLine("");
+	bpout.WriteLine("Address of pairs table: {0}", pairs_address);
+	//bpout.WriteLine("Base of stack segment:  {0}", boxes_address + heap_size);
+	var pairsMemory = cpu.Memory.Skip(pairs_address).Take(pair_table_size);
+	//bpout.WriteLine("Pairs table: {0}", string.Join(" ", pairsMemory));
+	
+	bpout.WriteLine("Pairs table:");
+	foreach (var pair in FormatPairsTable(pairsMemory)) bpout.WriteLine("\t{0}", pair);
+	bpout.WriteLine("");
+}
+
+IEnumerable<string> FormatPairsTable(IEnumerable<memval_t> src)
+{
+	return src.Chunk(3).Select(chunk => $"{chunk[0]} {chunk[1]} {Math.Sqrt(chunk[2])}");
 }
 
 void Year2025Day8_PrintBoxTable(IntcodeCpu cpu, string breakpointName)

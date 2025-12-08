@@ -1,6 +1,6 @@
 jt part1_limit:1000 &start
 hlt
-@raw raw_output: 0	 use_dle: 1  debug_box_info: 1  debug_pairs: 1  debug_pairs_sort: 1
+@raw raw_output: 0	 use_dle: 1  debug_box_info: 0  debug_pairs: 1  debug_pairs_sort: 1
 start: rbo &boxes
 # weird compiler bug: it accepts "rbo heap_size:1" but not "rbo heap_size: 1". odd.
 rbo heap_size:0
@@ -8,6 +8,7 @@ rbo heap_size:0
 @reference debug_pairs debug_pairs_sort assertion_failed
 @reference junction_count junction_table_size junction_table_size_inv 
 @reference part1_limit
+@reference disjoint_circuit_count
 
 ####################################################
 #
@@ -48,10 +49,9 @@ rbo heap_size:0
 
 #############################################################################
 #
-# Read puzzle input
+# PHASE 1: Read puzzle input
 #
-#
-# Read boxes
+# Read each box
 
 read_next_box:
 
@@ -90,19 +90,140 @@ jf ~2 &input_eof
 rbo 4
 
 add box_count 1 box_count
-add box_table_size      4 box_table_size
-add box_table_size_inv -4 box_table_size_inv
-add heap_size      4 heap_size
-add heap_size_inv -4 heap_size_inv
 @jmp &read_next_box
 
 ################################################################################################
 
 input_eof:
-jf box_count &first_input_line_blank
+@jlt box_count 2 &too_few_boxes
 
 @callt debug_box_info &print_box_info
 
+@cpy box_count unconnected_box_count
+
+mul box_count 4  box_table_size
+mul box_table_size -1 box_table_size_inv
+@cpy box_table_size heap_size
+@cpy box_table_size_inv heap_size_inv
+
+
+###############################################################################################
+#
+#
+# PHASE 2: Build pair table
+
+rbo box_table_size_inv
+
+@reference build_pairs
+@fn naked build_pairs() global(box_count, box_table_size, box_table_size_inv, heap_size, heap_size_inv, pair_count, pair_table_size, pair_table_size_inv, assertion_failed, assertion_failed_line)
+
+# there are no pairs if box_count < 2
+@jlt box_count 2 &auto__return
+
+@cpy 0 box1_id
+@cpy box_table_size box1_to_pair_table
+mul box_table_size -1 pair_table_to_next_box1
+#add pair_table_to_box1:0 4 pair_table_to_next_box1
+
+add box_count -1 max_box1
+
+
+### OUTER LOOP: 0 < box1_id < box_count - 1
+next_box1:
+# read box 1's coordinates
+mul ~0 -1 box1_x
+mul ~1 -1 box1_y
+mul ~2 -1 box1_z
+rbo 4
+
+# set up our RBO offsets (this is a HUGE pain in the ass)
+
+# at this point:
+# "rbo box1_to_pair_table" will set the relative base to the address of the pair table 
+# We don't actually use this with the RBO opcode, however. it's simply used to keep track of a value we need to initialize box2_to_pair_table correctly.
+# "rbo box2_to_pair_table" will set the relative base to the address of the pair table
+# if we are at the pair table:
+# "rbo pair_table_to_next_box1" will set the relative base so that ~0 is the NEXT box1
+# "rbo pair_table_to_next_box2" will set the relative base so that ~0 is the NEXT box2
+add box1_to_pair_table -4 box1_to_pair_table
+@cpy box1_to_pair_table:0 box2_to_pair_table
+add pair_table_to_next_box1 4 pair_table_to_next_box1
+add pair_table_to_next_box1 4 pair_table_to_next_box2
+
+
+add box1_id 1 box2_id
+next_box2:
+add box1_x:0 ~0 dist_vector
+mul dist_vector dist_vector dist_vector
+@cpy dist_vector:0          dist_total
+add box1_y:0 ~1 dist_vector
+mul dist_vector dist_vector dist_vector
+add dist_total  dist_vector dist_total
+add box1_z:0 ~2 dist_vector
+mul dist_vector dist_vector dist_vector
+add dist_total  dist_vector dist_total
+
+rbo box2_to_pair_table:0
+rbo pair_table_size
+@cpy box1_id:0 ~0
+@cpy box2_id:0 ~1
+@cpy dist_total:0 ~2
+rbo pair_table_size_inv
+
+add pair_count 1 pair_count
+add pair_table_size 3 pair_table_size
+add pair_table_size_inv -3 pair_table_size_inv
+
+advance_box2:
+@reference advance_box2
+# advance "box2"
+
+add box2_id 1 box2_id
+@jgt box2_id box_count &last_box2
+
+rbo pair_table_to_next_box2:0
+# pair_table_to_next_box2 should not be zero at this point
+jf pair_table_to_next_box2 &failed_assertion_1
+
+add box2_to_pair_table -4 box2_to_pair_table
+add pair_table_to_next_box2 4 pair_table_to_next_box2
+@jmp &next_box2
+
+last_box2:
+
+###### 
+# next box1
+
+# pair_table_to_next_box2 should be zero at this point. alas.
+jt pair_table_to_next_box2 &failed_assertion_2
+
+# move box1 forward 1
+add box1_id 1 box1_id
+@jgt box1_id max_box1:0 &last_box1
+
+rbo pair_table_to_next_box1:0
+add box1_to_pair_table -4 box1_to_pair_table
+add pair_table_to_next_box1 4 pair_table_to_next_box1
+@jmp &next_box1
+
+last_box1:
+rbo box_table_size_inv
+@jmp &auto__return
+
+failed_assertion_1:
+@cpy __LINE__ assertion_failed_line
+# pair_table_to_next_box2 was unexpectedly zero
+@jmp &assertion_failed
+
+failed_assertion_2:
+@cpy __LINE__ assertion_failed_line
+# pair_table_to_next_box2 was unexpectedly nonzero
+@jmp &assertion_failed
+@endfn
+
+done_build_pairs:
+@reference done_build_pairs
+#@callt debug_pairs &print_pairs
 hlt
 
 #############################################################################
@@ -120,8 +241,8 @@ hlt
 hlt
 
 
-first_input_line_blank:
-@cpy &str_first_input_line_blank ~1
+too_few_boxes:
+@cpy &str_too_few_boxes ~1
 @jmp &print_error_and_die
 
 
@@ -521,13 +642,13 @@ rbo arg_shift:0
 
 ####################################
 #
-# assertion_failed(line number)
+# assertion_failed()
 #
 # Print out "Error: Assertion failed on line <line number>" and halt.
 
 assertion_failed:
-@cpy ~1 ~2
 @cpy &str_assertion_failed_fmt ~1
+@cpy assertion_failed_line:0 ~2
 @jmp &printf_error_and_die
 
 #####################################
@@ -584,7 +705,7 @@ hlt
 # Strings
 
 @str str_error: "Error: "
-@str str_first_input_line_blank: "First input line is blank/empty\n"
+@str str_too_few_boxes: "Too few boxes (need at least 2)\n"
 @str str_unexpected_character_in_input_fmt: "Unexpected character '%C' in input at line %d, column %d\n"
 @str str_unexpected_end_of_file_fmt: "Unexpected end-of-file in input at line %d, column %d\n"
 @str str_assertion_failed_fmt: "Assertion failed on line %d\n"
@@ -600,8 +721,24 @@ hlt
 @raw box_count: 0
 @raw box_table_size: 0
 @raw box_table_size_inv: 0
-@raw junction_count: 0
-@raw junction_table_size: 0
-@raw junction_table_size_inv: 0
+@raw pair_count: 0
+@raw pair_table_size: 0
+@raw pair_table_size_inv: 0
+# number of boxes that are have not been connected to any other
+@raw unconnected_box_count: 0
+# number of disjoint circuits
+@raw disjoint_circuit_count: 0
 
 boxes:
+# boxes:
+# sizeof(box)=4   x, y, z, circuit_ptr_address
+#
+# pairs:
+# sizeof(pair)=3  box1, box2, distance
+#
+# circuit_pointers:
+# sizeof(ptr)=1   address of circuit node
+
+# circuits:
+#
+# 
