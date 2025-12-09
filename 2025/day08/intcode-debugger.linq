@@ -38,6 +38,7 @@ void Main()
 			code_file
 		));
 
+	cpu.AddBreakpoint("heapify_pairs_done", c => Year2025Day8_DebugPairAdded(cpu, "heapify_pairs_done"));
 	cpu.AddBreakpoint("fn_build_pairs__next_box2", c => Year2025Day8_DebugPhase2Pointers(cpu, "build_pairs::next_box2"));
 	cpu.AddBreakpoint("fn_build_pairs__next_box1", c => Year2025Day8_DebugPhase2Pointers(cpu, "build_pairs::next_box1"));
 	cpu.AddBreakpoint("fn_build_pairs__advance_box2", c => Year2025Day8_DebugPairAdded(cpu, "build_pairs::advance_box2"));
@@ -64,22 +65,22 @@ void Main()
 		int boxes_address = _name2Addr["boxes"];
 		int box_table_size = (int)ReadVariable(cpu, "box_table_size");
 		int pairs_address = boxes_address + box_table_size;
-		if (newrb < boxes_address + box_table_size) return $"&boxes[{(newrb - boxes_address) / 1}]";
-		return $"&pairs[{(newrb - pairs_address) / 1}]";
-/*
-int first_row_address = _name2Addr["first_row"];
-		if (newrb < first_row_address) return null;
-		int num_columns = (int)ReadVariable(cpu, "num_columns");
+		if (newrb < boxes_address + box_table_size) return $"&boxes[{ToScaleAndOffset(newrb - boxes_address, 4)}]";
+		return $"&pairs[{ToScaleAndOffset(newrb - pairs_address, 3)}]";
+		/*
+		int first_row_address = _name2Addr["first_row"];
+				if (newrb < first_row_address) return null;
+				int num_columns = (int)ReadVariable(cpu, "num_columns");
 
-		// if num_columns_inv == 0, we're still reading the first row and num_columns isn't set correctly yet
-		if (num_columns_inv == 0)
-			return string.Format("&first_row[{0}]", newrb - first_row_address);
+				// if num_columns_inv == 0, we're still reading the first row and num_columns isn't set correctly yet
+				if (num_columns_inv == 0)
+					return string.Format("&first_row[{0}]", newrb - first_row_address);
 
-		if (newrb < first_row_address + num_columns) return string.Format("&column_status[{0}]", newrb - first_row_address);
-		else if (newrb < first_row_address + 2 * num_columns) return string.Format("&p2_value[{0}]", newrb - (first_row_address + num_columns));
-		else if (newrb == first_row_address + 2 * num_columns) return "no man's land";
-		else return string.Format("&p1_table[{0}]", newrb - (first_row_address + 2 * num_columns + 1));
-*/
+				if (newrb < first_row_address + num_columns) return string.Format("&column_status[{0}]", newrb - first_row_address);
+				else if (newrb < first_row_address + 2 * num_columns) return string.Format("&p2_value[{0}]", newrb - (first_row_address + num_columns));
+				else if (newrb == first_row_address + 2 * num_columns) return "no man's land";
+				else return string.Format("&p1_table[{0}]", newrb - (first_row_address + 2 * num_columns + 1));
+		*/
 	};
 
 	if (false) cpu.AddBreakpoint("loop_add", _ =>
@@ -99,6 +100,7 @@ int first_row_address = _name2Addr["first_row"];
 		bpout.WriteLine("loop_mul: multiplying table[{0}] = {1} to p1_accum", cpu.Toc - (first_row_address + 2 * num_columns + 1), cpu.Memory[cpu.Toc]);
 	});
 
+	cpu.AddBreakpoint(00442, _ => { ExecutionLogFile.WriteLine("[rb+5] = {0}  [rb+2] = {1}", cpu.Memory[cpu.Toc + 5], cpu.Memory[cpu.Toc + 2]); });
 
 	if (false) cpu.AddBreakpoint("scan_first_row", _ =>
 {
@@ -165,6 +167,13 @@ int first_row_address = _name2Addr["first_row"];
 		//string.Join("\r\n", Last1000Instructions).Dump();
 		ExecutionLogFile?.Dispose();
 	}
+}
+
+static string ToScaleAndOffset(int offset, int array_element_size)
+{
+	var count = offset / array_element_size;
+	var remainder = offset % array_element_size;
+	return $"{count} * {array_element_size} + {remainder} = {offset}";
 }
 
 class BreakpointOutput : IDisposable
@@ -261,7 +270,7 @@ void Year2025Day8_DebugPairAdded(IntcodeCpu cpu, string breakpointName)
 	//bpout.WriteLine("Base of stack segment:  {0}", boxes_address + heap_size);
 	var pairsMemory = cpu.Memory.Skip(pairs_address).Take(pair_table_size);
 	//bpout.WriteLine("Pairs table: {0}", string.Join(" ", pairsMemory));
-	
+
 	bpout.WriteLine("Pairs table:");
 	foreach (var pair in FormatPairsTable(pairsMemory)) bpout.WriteLine("\t{0}", pair);
 	bpout.WriteLine("");
@@ -269,7 +278,7 @@ void Year2025Day8_DebugPairAdded(IntcodeCpu cpu, string breakpointName)
 
 IEnumerable<string> FormatPairsTable(IEnumerable<memval_t> src)
 {
-	return src.Chunk(3).Select(chunk => $"{chunk[0]} {chunk[1]} {Math.Sqrt(chunk[2])}");
+	return src.Chunk(3).Select(chunk => $"{chunk[0]} {chunk[1]} {(chunk[2])}");
 }
 
 void Year2025Day8_PrintBoxTable(IntcodeCpu cpu, string breakpointName)
@@ -720,6 +729,7 @@ class IntcodeCpu
 				int addr = (int)(ins_value + Toc);
 				if (addr >= Memory.Length)
 					return (default(memval_t), addr);
+				if (addr < 0) throw new Exception("attempt to access negative memory address");
 				return (Memory[addr], addr);
 		}
 	}

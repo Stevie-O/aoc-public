@@ -263,10 +263,18 @@ rbo box_table_size
 
 # if pair_count is 0, some idjit fed us an input with only two electrical boxes
 jf pair_count &auto__return
-add pair_count -1 start
+
+@cpy 0 start
+@cpy 0 count2
+scan_midpoint:
+add start 1 start 
+add count2:0 2 count2
+@jlt count2 pair_count &scan_midpoint
+
 mul start 3 start
 
 loop:
+jf start &auto__return
 add start:0 -3 start
 
 @cpy start root
@@ -281,7 +289,7 @@ mul root 2 iLeftChild
 add iLeftChild 3 iLeftChild
 @jge iLeftChild:0 pair_table_size &loop
 
-add iLeftChild 2 child
+add iLeftChild 0 child
 
 add iLeftChild 3 iRightChild
 @jge iRightChild:0 pair_table_size &no_right_child
@@ -294,13 +302,12 @@ add is_less:0 child child
 rbo iLeftChildInv:0
 no_right_child:
 
-add root 2 root
-add child 2 child
+add root:0 2 root_read
+add child:0 2 child_read
 # wikipedia article is checking a[root]<a[child]
 # so we're checking for a[child]<a[root]
-lt child:~0 root:~0 is_less
+lt child_read:~0 root_read:~0 is_less
 jf is_less &loop
-
 
 # swap the two elements
 mul root -1 root_inv
