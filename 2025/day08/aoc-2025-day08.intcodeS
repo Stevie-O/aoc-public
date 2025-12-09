@@ -1,18 +1,12 @@
 jt part1_limit:1000 &start
 hlt
-@raw raw_output: 0	 use_dle: 1  debug_box_info: 0  debug_pairs: 0 debug_pairs_sort: 0
+@raw raw_output: 0	 use_dle: 1  debug_box_info: 0  debug_pairs: 0 debug_pairs_heap: 0 print_stats: 1 
 start: rbo &boxes
 # weird compiler bug: it accepts "rbo heap_size:1" but not "rbo heap_size: 1". odd.
 rbo heap_size:0
 # suppress compiler errors
-@reference debug_pairs debug_pairs_sort assertion_failed
-@reference junction_count junction_table_size junction_table_size_inv 
-@reference part1_limit
-@reference disjoint_circuit_count
-@reference circuit_pointers
-@reference circuit_pointers_address
-@reference circuits_address
-@reference circuit_pointers_count
+@reference assertion_failed
+@reference print_stats
 
 ####################################################
 #
@@ -48,8 +42,9 @@ rbo heap_size:0
 # [5]: use_dle:    Default 1. 1 = Prefix all raw integer outputs with a a DLE (0x10) character.
 #                             This flag will normally have no effect unless RawOutput is enabled.
 # [5]: debug_box_info: If 1, output the coordinates of each box after reading the input
-# [6]: debug_pairs:    If 1, print each pair of boxes before heapify (not very interesting)
-# [7]: debug_pairs_sort: If 1, pirnt each pair of boxes after heapfiy
+# [6]: debug_pairs:      If 1, print each pair of boxes before heapify (not very interesting)
+# [7]: debug_pairs_heap: If 1, print each pair of boxes after heapify
+# [8]: print_stats. Default 1. Print some statistics on the circuit calculations at the end
 
 #############################################################################
 #
@@ -120,7 +115,7 @@ add &boxes box_table_size pair_table_address
 rbo box_table_size_inv
 
 @reference build_pairs
-@fn naked build_pairs() global(box_count, box_table_size, box_table_size_inv, heap_size, heap_size_inv, pair_count, pair_table_size, pair_table_size_inv, assertion_failed, assertion_failed_line, box_count_odd, pair_count_odd)
+@fn naked build_pairs() global(box_count, box_table_size, box_table_size_inv, heap_size, heap_size_inv, pair_count, pair_table_size, pair_table_size_inv, assertion_failed, assertion_failed_line, box_count_odd)
 
 # there are no pairs if box_count < 2
 @jlt box_count 2 &auto__return
@@ -239,15 +234,20 @@ done_build_pairs:
 
 # add in the pairs table
 add heap_size pair_table_size heap_size
-# reserve space for circuit pointers
-add heap_size box_count heap_size 
+# reserve space for circuit pointers (1 word per circuit, max 1 circuit per box)
+add heap_size box_count heap_size
+# and space for the circuit objects  (2 words per circuit, max 1 circuit per box)
+add heap_size box_count heap_size
+add heap_size box_count heap_size
 # finally, set heap_size_inv correctly
 mul heap_size -1 heap_size_inv
 
 # if requested, print out all pairs
-#rbo heap_size
+rbo heap_size
+@callt debug_pairs &print_pairs
+rbo heap_size_inv
+
 rbo box_table_size
-#@callt debug_pairs &print_pairs
 
 #############################################################################
 #
@@ -336,14 +336,318 @@ rbo root_inv
 
 @endfn
 
-heapify_pairs_done:
-@reference heapify_pairs_done
+#############################################################################
 
-hlt
+
+debug_heapify_pairs_done:
+@reference debug_heapify_pairs_done
+
+rbo heap_size
+@callt debug_pairs_heap &print_pairs
+rbo heap_size_inv
+
+
+add pair_table_address pair_table_size circuit_pointers_address
+add circuit_pointers_address box_count circuits_address
+
+add box_table_size pair_table_size boxes_to_circuit_pointers
+mul boxes_to_circuit_pointers -1 boxes_to_circuit_pointers_inv
+
+add boxes_to_circuit_pointers box_count boxes_to_circuits
+mul boxes_to_circuits -1 boxes_to_circuits_inv
+
+# at this point:
+# 1. the pairs array is now the pairs heap, a min-heap
+# 2. rb (the relative base) is pointed at root element of the pairs heap
+
+#############################################################################
+#
+# CONNECTION BUILD LOOP
+#
+# build connections until unconnected_box_count and disjoint_circuit_count are both 0
+
+process_next_pair:
+add stat_pairs_processed 1 stat_pairs_processed
+@cpy ~0 box1
+@cpy ~1 box2
+# pairs always have box1 < box2
+@cpy __LINE__ assertion_failed_line
+jf box2 &assertion_failed
+rbo box_table_size_inv
+
+# at this point, rb = &boxes
+
+mul box1 4 box1_3_read_offset
+add box1_3_read_offset 3 box1_3_read_offset
+mul box2 4 box2_3_read_offset
+add box2_3_read_offset 3 box2_3_read_offset
+
+@cpy box1_3_read_offset:~0 box1_ptr
+@cpy box2_3_read_offset:~0 box2_ptr
+
+# which boxes are connected? box1, box2, both, neither?
+rbo heap_size
+@jlt box1_ptr:0 0 &resolve_no_box1
+@cpy box1_ptr ~1
+@call &resolve_circuit_pointer
+@cpy ~1 box1_circuit
+resolve_no_box1:
+@jlt box2_ptr:0 0 &resolve_no_box2
+@cpy box2_ptr ~1
+@call &resolve_circuit_pointer
+@cpy ~1 box2_circuit
+resolve_no_box2:
+rbo heap_size_inv
+
+# if box1_ptr<0 then it's either box2 or neither
+@jlt box1_ptr 0 &box1_not_connected
+# if box1_ptr>=0 and box2_ptr<0 then it's box1 only
+@jlt box2_ptr 0 &box1_only
+
+# okay, it's *both*.
+# first check if both boxes are connected to the same circuit.
+# if they are, there is nothing to be done here.
+eq box1_circuit:0 box2_circuit:0 same_circuit
+eq same_circuit:0 0 different_circuit
+jt same_circuit &no_merge_required
+
+# okay, we need to merge the two circuits
+mul box1_circuit -1 box1_circuit_inv
+mul box2_circuit -1 box2_circuit_inv
+rbo boxes_to_circuit_pointers
+rbo box2_circuit
+# read circuit 2's count
+@cpy ~0 circuit2_count
+# change circuit 2's count to 0, marking it as merged
+@cpy 0 circuit2_count
+# set the merge destination for circuit 2
+@cpy box1_circuit ~1
+rbo box2_circuit_inv:0
+rbo box1_circuit
+# add circuit 2's circuits to circuit 1
+add ~0 circuit2_count:0 ~0
+rbo box1_circuit_inv:0
+rbo boxes_to_circuit_pointers_inv
+# aaand we're done!
+# there is 1 fewer circuit left
+add disjoint_circuit_count -1 disjoint_circuit_count
+
+no_merge_required:
+add stat_circuits_merged different_circuit:0 stat_circuits_merged
+add stat_pairs_redundant same_circuit stat_pairs_redundant
+# if disjoint_circuit_count is not 0 (and it usually isn't), we aren't done. skip the check
+jt disjoint_circuit_count &pair_finished_not_done
+# disjoint_circuit_count just hit 0; we need to also check unconnected_box_count.
+@jmp &pair_finished_circuit_merge
+
+# box1 but not box2. add box2 to box1 circuit
+box1_only:
+@cpy __LINE__ assertion_failed_line
+@jlt box1_circuit 0 &assertion_failed
+add stat_pairs_adjoin 1 stat_pairs_adjoin
+
+# point box2 at box1's circuit
+@cpy box2_3_read_offset b1o_box2_write_ptr
+@cpy box1_ptr b1o_box2_write_ptr:~0
+
+# increment the circuit's count by 1
+add boxes_to_circuit_pointers box1_circuit b1o_circuit_count_read
+@cpy b1o_circuit_count_read b1o_circuit_count_write
+# this is hideous
+add b1o_circuit_count_read:~0 1 b1o_circuit_count_write:~0
+
+# box2 is no longer disconnected from the rest of the grid
+add unconnected_box_count -1 unconnected_box_count
+@jmp &pair_finished
+
+box1_not_connected:
+@jlt box2_ptr 0 &neither_box_connected
+
+# box2_only:
+# okay, box2 but not box1. add box1 to box2 circuit
+add stat_pairs_adjoin 1 stat_pairs_adjoin
+
+@cpy __LINE__ assertion_failed_line
+@jlt box1_circuit 0 &assertion_failed
+
+# point box2 at box1's circuit
+@cpy box1_3_read_offset b2o_box1_write_ptr
+@cpy box2_ptr b2o_box1_write_ptr:~0
+
+# increment the circuit's count by 1
+add boxes_to_circuit_pointers box2_circuit b2o_circuit_count_read
+@cpy b2o_circuit_count_read b2o_circuit_count_write
+# still hideous
+add b2o_circuit_count_read:~0 1 b2o_circuit_count_write:~0
+
+# box1 is no longer disconnected from the rest of the grid
+add unconnected_box_count -1 unconnected_box_count
+@jmp &pair_finished
+
+neither_box_connected:
+
+add stat_pairs_new 1 stat_pairs_new
+# there is now 1 additional circuit that is not connected to anything else
+add disjoint_circuit_count 1 disjoint_circuit_count 
+
+# okay, this might actually be the most annoying one, cuz we now need to allocate a circuit and a circuit pointer
+mul circuit_count 2 new_circuit_address
+mul new_circuit_address -1 new_circuit_address_inv
+
+# allocate circuit pointer
+rbo boxes_to_circuit_pointers
+rbo circuit_pointers_count
+# fortunately, we know where the new circuit will be allocated ahead of time, which simplifies matters
+@cpy new_circuit_address ~0
+rbo circuit_pointers_count_inv
+# increment the number of circuit pointers
+add circuit_pointers_count 1 circuit_pointers_count
+mul circuit_pointers_count_inv -1 circuit_pointers_count
+
+# now allocate a circuit
+
+# rb = &circuit_pointers[0] so we need to move forward box_count
+rbo box_count
+rbo new_circuit_address:0 
+# this circuit has two boxes
+@cpy 2 ~0
+# and is not merged
+@cpy -1 ~1
+rbo new_circuit_address_inv:0
+# one more circuit
+add circuit_count 1 circuit_count
+# after a while the word "circuit" starts looking like it's spelled wrong. @.@
+
+rbo boxes_to_circuits_inv
+# now point the boxes at those circuits
+@cpy box1_3_read_offset new_circuit_box1_write_offset
+@cpy box2_3_read_offset new_circuit_box2_write_offset
+
+@cpy new_circuit_address new_circuit_box1_write_offset:~0 
+@cpy new_circuit_address new_circuit_box2_write_offset:~0
+
+add unconnected_box_count -2 unconnected_box_count
+
+pair_finished:
+# if disjoint_circuit_count != 0, we aren't done
+jt disjoint_circuit_count &pair_finished_not_done
+pair_finished_circuit_merge:
+# if unconnected_box_count != 0, we aren't done
+jt unconnected_box_count &pair_finished_not_done
+
+# unconnected_box_count == 0.
+mul box1 4 box1_x_read
+mul box2 4 box2_x_read
+mul box1_x_read:~0 box2_x_read:~0 part2_answer
+@jmp &output_answers_and_halt
+
+pair_finished_not_done:
+
+# check for part1 threshold reached
+add part1_limit -1 part1_limit
+jt part1_limit &not_part1_time
+rbo heap_size
+@call &compute_part1_answer
+rbo heap_size_inv
+not_part1_time:
+
+# adjust RB to &pairs[0]
+rbo pair_table_size
+
+# pair_count had better be greater than zero
+@cpy __LINE__ assertion_failed_line
+jf pair_count &assertion_failed
+
+#############################################################################
+@reference pop_pair_from_heap
+@fn naked pop_pair_from_heap() global(pair_count)
+add pair_count -1 pair_count
+# if this leaves the heap empty, there's nothing to do 
+mul pair_count 3 last_element
+mul last_element -1 last_element_inv
+rbo last_element:0
+# save off the last element in the heap
+@cpy ~0 le_0
+@cpy ~1 le_1
+@cpy ~2 le_2
+# mark it as dead so we'll crash if we accidentally access it
+@cpy 0 ~1
+jf last_element_inv &end_siftDown
+rbo last_element_inv:0
+# Overwrite the root element of the heap with the (former) last element
+@cpy le_0:0 ~0
+@cpy le_1:0 ~1
+@cpy le_2:0 ~2
+
+@cpy 0 root
+
+siftDown:
+
+# in the docs:
+#    iLeftChild(i) = 2i + 1
+#    iRightChild(i) = 2i + 2
+# we need to add 3 and 6 here cuz we're doing raw memory addresses and each element is 3 words
+mul root 2 iLeftChild
+add iLeftChild 3 iLeftChild
+@jge iLeftChild:0 last_element &end_siftDown
+
+add iLeftChild 0 child
+
+add iLeftChild 3 iRightChild
+@jge iRightChild:0 last_element &no_right_child
+mul iLeftChild -1 iLeftChildInv
+rbo iLeftChild
+# I want a min-heap, so I need to check if the right child is greater than the right child
+lt ~5 ~2 is_less
+mul is_less 3 is_less
+add is_less:0 child child
+rbo iLeftChildInv:0
+no_right_child:
+
+add root:0 2 root_read
+add child:0 2 child_read
+# wikipedia article is checking a[root]<a[child]
+# so we're checking for a[child]<a[root]
+lt child_read:~0 root_read:~0 is_less
+jf is_less &end_siftDown
+
+# swap the two elements
+mul root -1 root_inv
+mul child -1 child_inv
+rbo root
+@cpy ~0 tmpa0
+@cpy ~1 tmpa1
+@cpy ~2 tmpa2
+rbo root_inv:0
+rbo child
+@cpy ~0 tmpb0
+@cpy ~1 tmpb1
+@cpy ~2 tmpb2
+@cpy tmpa0:0 ~0
+@cpy tmpa1:0 ~1
+@cpy tmpa2:0 ~2
+rbo child_inv:0
+rbo root
+@cpy tmpb0:0 ~0
+@cpy tmpb1:0 ~1
+@cpy tmpb2:0 ~2
+rbo root_inv
+
+@cpy child root
+@jmp &siftDown
+
+end_siftDown:
+@endfn
+#############################################################################
+
+
+@jmp &process_next_pair
 
 #############################################################################
 #
 # output answers here
+
+output_answers_and_halt:
 
 @cpy &str_part1_answer_fmt ~1
 @cpy part1_answer ~2
@@ -360,6 +664,118 @@ hlt
 too_few_boxes:
 @cpy &str_too_few_boxes ~1
 @jmp &print_error_and_die
+
+#############################################################################
+#
+# compute_part1_answer
+#
+# PRECONDITIONS:
+# - relative base is &boxes + heap_size
+
+@fn 0 compute_part1_answer() global(boxes, heap_size, heap_size_inv, boxes_to_circuits, circuit_count, boxes_to_circuits_inv, part1_answer)
+
+# undo local stack adjustment
+rbo &auto__stack_size_inv
+# rewind to &boxes[0]
+rbo heap_size_inv
+# forward to &circuits[0]
+rbo boxes_to_circuits
+mul circuit_count -2 circuits_inv
+@cpy circuit_count circuits_left
+@cpy 1 top1
+@cpy 1 top2
+@cpy 1 top3
+
+examine_next_circuit:
+# is it better than 3rd place?
+@jle ~0 top3:0 &no_place
+
+# okay, it's better than the current 3rd place
+# is it better than 2nd place?
+
+@jle ~0 top2:0 &place_top3
+
+# okay, it's better than the current 2nd place
+# is it beter than 1st place?
+
+@jle ~0 top1:0 &place_top2
+
+# yes!
+@cpy top2 top3
+@cpy top1 top2
+@cpy ~0 top1
+@jmp &no_place
+
+place_top2:
+@cpy top2 top3
+@cpy ~0 top2
+@jmp &no_place
+
+place_top3:
+@cpy ~0 top3
+
+no_place:
+rbo 2
+add circuits_left -1 circuits_left
+jt circuits_left:0 &examine_next_circuit
+
+# part 1 answer is the product of the sizes of the 3 largest circuits
+mul top1 top2 part1_answer
+mul top3 part1_answer part1_answer
+
+# rewind the stack
+rbo circuits_inv:0 
+rbo boxes_to_circuits_inv
+rbo heap_size
+rbo &auto__stack_size
+
+@endfn
+
+#############################################################################
+#
+# resolve_circuit_pointer(pointer_address)
+#
+# PRECONDITIONS:
+# - relative base is &boxes + heap_size
+# - 0 <= pointer_address < circuit_pointers_count
+#
+# Upon return:
+# - ~1 contains the address of the circuit that is pointed to
+
+@fn 1 resolve_circuit_pointer(pointer_address_arg) global(boxes, heap_size, heap_size_inv, boxes_to_circuit_pointers, boxes_to_circuits, boxes_to_circuits_inv)
+
+@cpy pointer_address_arg pointer_address
+
+rbo &auto__stack_size_inv
+rbo heap_size_inv
+add boxes_to_circuit_pointers pointer_address:0 circptr_read
+@cpy circptr_read:~0 circuit_address
+@cpy 0 any_merge
+
+rbo boxes_to_circuits
+
+follow_merge:
+mul circuit_address -1 circuit_address_inv
+rbo circuit_address:0
+@jgt ~0 0 &final_circuit
+@cpy 1 any_merge
+@cpy ~1 circuit_address
+rbo circuit_address_inv:0
+@jmp &follow_merge
+final_circuit:
+
+rbo boxes_to_circuits_inv
+
+jf any_merge:0 &no_merges
+add boxes_to_circuit_pointers pointer_address circptr_write
+@cpy circuit_address circptr_write:~0
+no_merges:
+
+rbo heap_size
+rbo &auto__stack_size
+@cpy circuit_address return0
+@endfn
+
 
 
 #############################################################################
@@ -864,6 +1280,17 @@ hlt
 
 @raw part1_answer:0 part2_answer:0
 
+@raw stat_pairs_processed: 0
+@raw stat_pairs_redundant: 0
+@raw stat_pairs_adjoin: 0
+@raw stat_circuits_merged: 0
+@raw stat_pairs_new: 0
+
+# number of disjoint circuits MINUS ONE
+# this ensures that when part 2 is ready, disjoint_circuit_count is 0.
+@raw disjoint_circuit_count: -1
+
+@raw box1: 0 box2: 0
 @raw box_x: 0 box_y: 0 box_z: 0
 @raw box_count: 0
 @raw box_table_size: 0
@@ -872,13 +1299,18 @@ hlt
 @raw pair_count: 0
 @raw pair_table_size: 0
 @raw pair_table_size_inv: 0
+@raw boxes_to_circuit_pointers: 0
+@raw boxes_to_circuit_pointers_inv: 0
+@raw boxes_to_circuits: 0
+@raw boxes_to_circuits_inv: 0
 @raw circuit_pointers_address: 0
 @raw circuit_pointers_count: 0
+@raw circuit_pointers_count_inv: 0
 # number of boxes that are have not been connected to any other
 @raw unconnected_box_count: 0
 # number of disjoint circuits
-@raw disjoint_circuit_count: 0
 @raw circuits_address: 0
+@raw circuit_count: 0
 @raw heap_size_inv: 0
 
 boxes:
@@ -893,4 +1325,4 @@ boxes:
 
 # circuits:
 #
-# sizeof(circuit)=2   merged_to, num_boxes
+# sizeof(circuit)=2   num_boxes, merged_to

@@ -38,7 +38,18 @@ void Main()
 			code_file
 		));
 
-	cpu.AddBreakpoint("heapify_pairs_done", c => Year2025Day8_DebugPairAdded(cpu, "heapify_pairs_done"));
+cpu.AddBreakpoint("resolve_circuit_pointer", _ => {
+	var bpout = new BreakpointOutput();
+	var boxes_address = _name2Addr["boxes"];
+	var heap_size = (int)ReadVariable(cpu, "heap_size");
+	var expected_toc = boxes_address + heap_size;
+	if (cpu.Toc != expected_toc)
+	{
+		bpout.WriteLine("ERROR: precondition failed for resolve_circuit_pointer: expected rb={0} but actual rb={1} ({2})", expected_toc, cpu.Toc, cpu.DescribeToc(cpu, cpu.Toc));
+		cpu.Memory[cpu.Pc] = 99; // halt the program
+	}
+});
+	cpu.AddBreakpoint("debug_heapify_pairs_done", c => Year2025Day8_DebugPairAdded(cpu, "debug_heapify_pairs_done"));
 	cpu.AddBreakpoint("fn_build_pairs__next_box2", c => Year2025Day8_DebugPhase2Pointers(cpu, "build_pairs::next_box2"));
 	cpu.AddBreakpoint("fn_build_pairs__next_box1", c => Year2025Day8_DebugPhase2Pointers(cpu, "build_pairs::next_box1"));
 	cpu.AddBreakpoint("fn_build_pairs__advance_box2", c => Year2025Day8_DebugPairAdded(cpu, "build_pairs::advance_box2"));
@@ -62,27 +73,28 @@ void Main()
 	*/
 	cpu.DescribeToc = (_, newrb) =>
 	{
+		int heap_size = (int)ReadVariable(cpu, "heap_size");
 		int boxes_address = _name2Addr["boxes"];
+		int stack_address = boxes_address + heap_size;
 		int box_table_size = (int)ReadVariable(cpu, "box_table_size");
 		int pairs_address = boxes_address + box_table_size;
 		if (newrb < boxes_address + box_table_size) return $"&boxes[{ToScaleAndOffset(newrb - boxes_address, 4)}]";
-		return $"&pairs[{ToScaleAndOffset(newrb - pairs_address, 3)}]";
-		/*
-		int first_row_address = _name2Addr["first_row"];
-				if (newrb < first_row_address) return null;
-				int num_columns = (int)ReadVariable(cpu, "num_columns");
-
-				// if num_columns_inv == 0, we're still reading the first row and num_columns isn't set correctly yet
-				if (num_columns_inv == 0)
-					return string.Format("&first_row[{0}]", newrb - first_row_address);
-
-				if (newrb < first_row_address + num_columns) return string.Format("&column_status[{0}]", newrb - first_row_address);
-				else if (newrb < first_row_address + 2 * num_columns) return string.Format("&p2_value[{0}]", newrb - (first_row_address + num_columns));
-				else if (newrb == first_row_address + 2 * num_columns) return "no man's land";
-				else return string.Format("&p1_table[{0}]", newrb - (first_row_address + 2 * num_columns + 1));
-		*/
+		int circuit_pointers_address = (int)ReadVariable(cpu, "circuit_pointers_address");
+		int box_count = (int)ReadVariable(cpu, "box_count");
+		int circuits_address = (int)ReadVariable(cpu, "circuits_address");
+		// if circuits_address == 0, heap_size is unreliable
+		if (circuits_address == 0
+			|| (pairs_address <= newrb  && newrb < circuit_pointers_address))
+			return $"&pairs[{ToScaleAndOffset(newrb - pairs_address, 3)}]";
+		if (stack_address <= newrb) return $"heap_end + {newrb - stack_address}";
+		if (circuit_pointers_address <= newrb && newrb < circuits_address)
+			return $"&circuit_pointers[{newrb - circuit_pointers_address}]";
+		if (circuits_address <= newrb && newrb < stack_address)
+			return $"&circuits[{ToScaleAndOffset(newrb - circuits_address, 2)}]";
+		return "?!unknown!?";
 	};
 
+	cpu.AddBreakpoint("process_next_pair", _ => { ExecutionLogFile.WriteLine("(at breakpoint) rb = {0} ({1})", cpu.Toc, cpu.DescribeToc(cpu, cpu.Toc));  });
 	if (false) cpu.AddBreakpoint("loop_add", _ =>
 	{
 		using var bpout = new BreakpointOutput();
@@ -914,6 +926,7 @@ class IntcodeCpu
 	{
 		TriggerBreakpoints();
 
+		if (Pc < 0 || Pc >= Memory.Length) throw new Exception("PC out of bounds: " + Pc);
 		var ins_arg0 = Memory[Pc];
 		var trace = new ExecutionTrace();
 		var (directMask, ins) = DecodeArg0(ins_arg0);
