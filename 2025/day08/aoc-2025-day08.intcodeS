@@ -1,6 +1,6 @@
 jt part1_limit:1000 &start
 hlt
-@raw raw_output: 0	 use_dle: 1  debug_box_info: 0  debug_pairs: 1  debug_pairs_sort: 1
+@raw raw_output: 0	 use_dle: 1  debug_box_info: 0  debug_pairs: 0 debug_pairs_sort: 0
 start: rbo &boxes
 # weird compiler bug: it accepts "rbo heap_size:1" but not "rbo heap_size: 1". odd.
 rbo heap_size:0
@@ -9,6 +9,10 @@ rbo heap_size:0
 @reference junction_count junction_table_size junction_table_size_inv 
 @reference part1_limit
 @reference disjoint_circuit_count
+@reference circuit_pointers
+@reference circuit_pointers_address
+@reference circuits_address
+@reference circuit_pointers_count
 
 ####################################################
 #
@@ -35,7 +39,7 @@ rbo heap_size:0
 
 ##########################
 #
-# EXECUTION OPTIONS BLOCK - Memory addresses 1, 4-N
+# EXECUTION OPTIONS BLOCK - Memory addresses 1, 4-5
 #
 # [1]: part1_limit: Default 1000.  Number of connections to attempt for part 1.
 #                                  Running the example requires changing this to 10.
@@ -43,9 +47,9 @@ rbo heap_size:0
 # [4]: raw_output: Default 0. 0 = ASCII output for integers. 1 = Output all integers as raw integer values.
 # [5]: use_dle:    Default 1. 1 = Prefix all raw integer outputs with a a DLE (0x10) character.
 #                             This flag will normally have no effect unless RawOutput is enabled.
-# [5]: debug_box_info: If 1, output the coordinates of each box
-# [6]: debug_pairs:    If 1, print each pair of boxes before sorting
-# [7]: debug_pairs_sort: If 1, pirnt each pair of boxes after sorting
+# [5]: debug_box_info: If 1, output the coordinates of each box after reading the input
+# [6]: debug_pairs:    If 1, print each pair of boxes before heapify (not very interesting)
+# [7]: debug_pairs_sort: If 1, pirnt each pair of boxes after heapfiy
 
 #############################################################################
 #
@@ -105,6 +109,7 @@ mul box_count 4  box_table_size
 mul box_table_size -1 box_table_size_inv
 @cpy box_table_size heap_size
 @cpy box_table_size_inv heap_size_inv
+add &boxes box_table_size pair_table_address
 
 
 ###############################################################################################
@@ -115,18 +120,20 @@ mul box_table_size -1 box_table_size_inv
 rbo box_table_size_inv
 
 @reference build_pairs
-@fn naked build_pairs() global(box_count, box_table_size, box_table_size_inv, heap_size, heap_size_inv, pair_count, pair_table_size, pair_table_size_inv, assertion_failed, assertion_failed_line)
+@fn naked build_pairs() global(box_count, box_table_size, box_table_size_inv, heap_size, heap_size_inv, pair_count, pair_table_size, pair_table_size_inv, assertion_failed, assertion_failed_line, box_count_odd, pair_count_odd)
 
 # there are no pairs if box_count < 2
 @jlt box_count 2 &auto__return
 
+# if we have n boxes, we first add (n-1) pairs, then n pairs, then (n-2) pairs...
+
 @cpy 0 box1_id
 @cpy box_table_size box1_to_pair_table
 mul box_table_size -1 pair_table_to_next_box1
+mul box1_count_odd:0 0 box1_count_odd
 #add pair_table_to_box1:0 4 pair_table_to_next_box1
 
 add box_count -1 max_box1
-
 
 ### OUTER LOOP: 0 < box1_id < box_count - 1
 next_box1:
@@ -205,6 +212,7 @@ rbo pair_table_to_next_box1:0
 @jmp &next_box1
 
 last_box1:
+# leave ourselves on the pairs table
 rbo box_table_size_inv
 @jmp &auto__return
 
@@ -219,9 +227,111 @@ failed_assertion_2:
 @jmp &assertion_failed
 @endfn
 
+####################################################################################################
+#
+#
+# PHASE 3: heapify the pairs table
+
 done_build_pairs:
 @reference done_build_pairs
+
+# update the heap size
+
+# add in the pairs table
+add heap_size pair_table_size heap_size
+# reserve space for circuit pointers
+add heap_size box_count heap_size 
+# finally, set heap_size_inv correctly
+mul heap_size -1 heap_size_inv
+
+# if requested, print out all pairs
+#rbo heap_size
+rbo box_table_size
 #@callt debug_pairs &print_pairs
+
+#############################################################################
+#
+# heapify_pairs()
+#
+# Convert the pairs table into a heap
+
+@reference heapify_pairs
+@fn naked heapify_pairs() global(boxes, pair_count, pair_table_size)
+
+# https://en.wikipedia.org/wiki/Heapsort
+# thanks to @atom on the Discord
+
+# if pair_count is 0, some idjit fed us an input with only two electrical boxes
+jf pair_count &auto__return
+add pair_count -1 start
+mul start 3 start
+
+loop:
+add start:0 -3 start
+
+@cpy start root
+
+siftDown:
+
+# in the docs:
+#    iLeftChild(i) = 2i + 1
+#    iRightCHild(i) = 2i + 2
+# we need to add 3 and 6 here cuz we're doing raw memory addresses and each element is 3 words
+mul root 2 iLeftChild
+add iLeftChild 3 iLeftChild
+@jge iLeftChild:0 pair_table_size &loop
+
+add iLeftChild 2 child
+
+add iLeftChild 3 iRightChild
+@jge iRightChild:0 pair_table_size &no_right_child
+mul iLeftChild -1 iLeftChildInv
+rbo iLeftChild
+# I want a min-heap, so I need to check if the right child is greater than the right child
+lt ~5 ~2 is_less
+mul is_less 3 is_less
+add is_less:0 child child
+rbo iLeftChildInv:0
+no_right_child:
+
+add root 2 root
+add child 2 child
+# wikipedia article is checking a[root]<a[child]
+# so we're checking for a[child]<a[root]
+lt child:~0 root:~0 is_less
+jf is_less &loop
+
+
+# swap the two elements
+mul root -1 root_inv
+mul child -1 child_inv
+rbo root
+@cpy ~0 tmpa0
+@cpy ~1 tmpa1
+@cpy ~2 tmpa2
+rbo root_inv:0
+rbo child
+@cpy ~0 tmpb0
+@cpy ~1 tmpb1
+@cpy ~2 tmpb2
+@cpy tmpa0:0 ~0
+@cpy tmpa1:0 ~1
+@cpy tmpa2:0 ~2
+rbo child_inv:0
+rbo root
+@cpy tmpb0:0 ~0
+@cpy tmpb1:0 ~1
+@cpy tmpb2:0 ~2
+rbo root_inv
+
+@cpy child root
+@jmp &siftDown
+
+@endfn
+
+heapify_pairs_done:
+@reference heapify_pairs_done
+
 hlt
 
 #############################################################################
@@ -238,26 +348,44 @@ hlt
 
 hlt
 
+### error paths for main body
 
 too_few_boxes:
 @cpy &str_too_few_boxes ~1
 @jmp &print_error_and_die
 
 
-###############################################################################
+#############################################################################
+#
+# print_pairs()
+#
+@str str_pair_count_fmt: "Number of pairs: %d\n\n"
+@str str_pair_fmt: "%d %d\n"
 
-# @fn 0 memset(dest, ch, count)
+@reference print_pairs
+@fn 0 print_pairs() local(pairs_left) global(printf, print_pairs, pair_count, boxes, box_table_size, str_pair_count_fmt, str_pair_fmt)
 
-# jf count &skip
-# @cpy dest rdi
-# loop:
-# @cpy ch rdi:*0
-# add rdi 1 rdi
-# add count -1 count
-# jt count &loop
-# skip:
+@cpy &str_pair_count_fmt ~1
+@cpy pair_count ~2
+@call &printf
 
-# @endfn
+add &boxes box_table_size pairs_ptr_1
+add pairs_ptr_1 1 pairs_ptr_2
+@cpy pair_count pairs_left
+loop:
+@cpy &str_pair_fmt ~1
+@cpy pairs_ptr_1:*0 ~2
+@cpy pairs_ptr_2:*0 ~3
+@call &printf
+add pairs_ptr_1 3 pairs_ptr_1
+add pairs_ptr_2 3 pairs_ptr_2
+add pairs_left -1 pairs_left
+jt pairs_left &loop
+
+@endfn
+
+
+
 
 #############################################################################
 #
@@ -293,6 +421,21 @@ add boxes_left -1 boxes_left
 jt boxes_left:0 &print_next_box
 
 @endfn
+
+###############################################################################
+
+# @fn 0 memset(dest, ch, count)
+
+# jf count &skip
+# @cpy dest rdi
+# loop:
+# @cpy ch rdi:*0
+# add rdi 1 rdi
+# add count -1 count
+# jt count &loop
+# skip:
+
+# @endfn
 
 #############################################################################
 #
@@ -715,17 +858,21 @@ hlt
 @raw part1_answer:0 part2_answer:0
 
 @raw box_x: 0 box_y: 0 box_z: 0
-@raw heap_size_inv: 0
 @raw box_count: 0
 @raw box_table_size: 0
 @raw box_table_size_inv: 0
+@raw pair_table_address: 0
 @raw pair_count: 0
 @raw pair_table_size: 0
 @raw pair_table_size_inv: 0
+@raw circuit_pointers_address: 0
+@raw circuit_pointers_count: 0
 # number of boxes that are have not been connected to any other
 @raw unconnected_box_count: 0
 # number of disjoint circuits
 @raw disjoint_circuit_count: 0
+@raw circuits_address: 0
+@raw heap_size_inv: 0
 
 boxes:
 # boxes:
@@ -739,4 +886,4 @@ boxes:
 
 # circuits:
 #
-# 
+# sizeof(circuit)=2   merged_to, num_boxes
