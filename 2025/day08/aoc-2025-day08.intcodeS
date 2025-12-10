@@ -432,12 +432,12 @@ jt same_circuit &no_merge_required
 # okay, we need to merge the two circuits
 mul box1_circuit -1 box1_circuit_inv
 mul box2_circuit -1 box2_circuit_inv
-rbo boxes_to_circuit_pointers
+rbo boxes_to_circuits
 rbo box2_circuit
 # read circuit 2's count
 @cpy ~0 circuit2_count
 # change circuit 2's count to 0, marking it as merged
-@cpy 0 circuit2_count
+@cpy 0 ~0
 # set the merge destination for circuit 2
 @cpy box1_circuit ~1
 rbo box2_circuit_inv:0
@@ -445,7 +445,7 @@ rbo box1_circuit
 # add circuit 2's circuits to circuit 1
 add ~0 circuit2_count:0 ~0
 rbo box1_circuit_inv:0
-rbo boxes_to_circuit_pointers_inv
+rbo boxes_to_circuits_inv
 # aaand we're done!
 # there is 1 fewer circuit left
 add disjoint_circuit_count -1 disjoint_circuit_count
@@ -469,7 +469,7 @@ add stat_pairs_adjoin 1 stat_pairs_adjoin
 @cpy box1_ptr b1o_box2_write_ptr:~0
 
 # increment the circuit's count by 1
-add boxes_to_circuit_pointers box1_circuit b1o_circuit_count_read
+add boxes_to_circuits box1_circuit b1o_circuit_count_read
 @cpy b1o_circuit_count_read b1o_circuit_count_write
 # this is hideous
 add b1o_circuit_count_read:~0 1 b1o_circuit_count_write:~0
@@ -494,7 +494,7 @@ add stat_pairs_adjoin 1 stat_pairs_adjoin
 @cpy box2_ptr b2o_box1_write_ptr:~0
 
 # increment the circuit's count by 1
-add boxes_to_circuit_pointers box2_circuit b2o_circuit_count_read
+add boxes_to_circuits box2_circuit b2o_circuit_count_read
 @cpy b2o_circuit_count_read b2o_circuit_count_write
 # still hideous
 add b2o_circuit_count_read:~0 1 b2o_circuit_count_write:~0
@@ -512,6 +512,7 @@ add disjoint_circuit_count 1 disjoint_circuit_count
 # okay, this might actually be the most annoying one, cuz we now need to allocate a circuit and a circuit pointer
 mul circuit_count 2 new_circuit_address
 mul new_circuit_address -1 new_circuit_address_inv
+@cpy circuit_pointers_count new_circuit_pointer_address
 
 # allocate circuit pointer
 rbo boxes_to_circuit_pointers
@@ -521,7 +522,7 @@ rbo circuit_pointers_count
 rbo circuit_pointers_count_inv
 # increment the number of circuit pointers
 add circuit_pointers_count 1 circuit_pointers_count
-mul circuit_pointers_count_inv -1 circuit_pointers_count
+mul circuit_pointers_count -1 circuit_pointers_count_inv
 
 # now allocate a circuit
 
@@ -542,8 +543,8 @@ rbo boxes_to_circuits_inv
 @cpy box1_3_read_offset new_circuit_box1_write_offset
 @cpy box2_3_read_offset new_circuit_box2_write_offset
 
-@cpy new_circuit_address new_circuit_box1_write_offset:~0 
-@cpy new_circuit_address new_circuit_box2_write_offset:~0
+@cpy new_circuit_pointer_address:0 new_circuit_box1_write_offset:~0 
+@cpy new_circuit_pointer_address   new_circuit_box2_write_offset:~0
 
 add unconnected_box_count -2 unconnected_box_count
 

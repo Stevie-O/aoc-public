@@ -286,6 +286,10 @@ void Year2025Day8_DebugProcessNextPair(IntcodeCpu cpu, string breakpointName)
 	int box1 = (int)cpu.Memory[cpu.Toc];
 	int box2 = (int)cpu.Memory[cpu.Toc + 1];
 	
+	bpout.WriteLine("Pairs left: {0}", ReadVariable(cpu, "pair_count"));
+	bpout.WriteLine("# of unconnected boxes: {0}", ReadVariable(cpu, "unconnected_box_count"));
+	// disjoint_circuit_count is off by 1 so that it is equal to 0 when we have solved the problem
+	bpout.WriteLine("# of disjoint circuits: {0}", 1 + ReadVariable(cpu, "disjoint_circuit_count"));
 	bpout.WriteLine("Upcoming boxes: {0} and {1}", box1, box2);
 	//bpout.WriteLine("RB = {0}", cpu.Toc);
 	int boxes_address = _name2Addr["boxes"];
@@ -309,13 +313,14 @@ void Year2025Day8_DebugProcessNextPair(IntcodeCpu cpu, string breakpointName)
 			var circuit_address = (int)cpu.Memory[circuit_pointers_address + circuit_ptr];
 			sb.AppendFormat(" -> {0,3}", circuit_address);
 			int circuit_box_count, circuit_merge_ptr;
+			int loop_limit = 10;
 			do
 			{
 				circuit_box_count = (int)cpu.Memory[circuits_address + circuit_address + 0];
 				circuit_merge_ptr = (int)cpu.Memory[circuits_address + circuit_address + 1];
 				sb.AppendFormat(" => (count = {0,3}, merged = {1,3})", circuit_box_count, circuit_merge_ptr);
 				circuit_address = circuit_merge_ptr;
-			} while (circuit_address >= 0);
+			} while (circuit_address >= 0 && (--loop_limit > 0));
 		}
 		bpout.WriteLine(sb.ToString());
 	}
