@@ -419,6 +419,9 @@ rbo heap_size_inv
 # if box1_ptr>=0 and box2_ptr<0 then it's box1 only
 @jlt box2_ptr 0 &box1_only
 
+@reference debug_both_connected
+debug_both_connected:
+
 # okay, it's *both*.
 # first check if both boxes are connected to the same circuit.
 # if they are, there is nothing to be done here.
@@ -478,7 +481,8 @@ add unconnected_box_count -1 unconnected_box_count
 box1_not_connected:
 @jlt box2_ptr 0 &neither_box_connected
 
-# box2_only:
+@reference debug_box2_only
+debug_box2_only:
 # okay, box2 but not box1. add box1 to box2 circuit
 add stat_pairs_adjoin 1 stat_pairs_adjoin
 
