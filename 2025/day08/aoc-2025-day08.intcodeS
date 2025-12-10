@@ -4,6 +4,9 @@ hlt
 start: rbo &boxes
 # weird compiler bug: it accepts "rbo heap_size:1" but not "rbo heap_size: 1". odd.
 rbo heap_size:0
+# box --- pairs --- circptr --- circuits
+# ^ &box[0]
+
 # suppress compiler errors
 @reference assertion_failed
 @reference print_stats
@@ -367,6 +370,9 @@ mul boxes_to_circuits -1 boxes_to_circuits_inv
 # build connections until unconnected_box_count and disjoint_circuit_count are both 0
 
 process_next_pair:
+#      box --- pairs --- circptr --- circuits --- heap_end
+# rb =        ^ &pairs[0]
+
 add stat_pairs_processed 1 stat_pairs_processed
 @cpy ~0 box1
 @cpy ~1 box2
@@ -375,7 +381,8 @@ add stat_pairs_processed 1 stat_pairs_processed
 jf box2 &assertion_failed
 rbo box_table_size_inv
 
-# at this point, rb = &boxes
+#      box --- pairs --- circptr --- circuits --- heap_end
+# rb = ^ &box[0]
 
 mul box1 4 box1_3_read_offset
 add box1_3_read_offset 3 box1_3_read_offset
@@ -387,6 +394,10 @@ add box2_3_read_offset 3 box2_3_read_offset
 
 # which boxes are connected? box1, box2, both, neither?
 rbo heap_size
+#      box --- pairs --- circptr --- circuits --- heap_end
+# rb =                                            ^ &heap_end
+
+
 @jlt box1_ptr:0 0 &resolve_no_box1
 @cpy box1_ptr ~1
 @call &resolve_circuit_pointer
@@ -398,6 +409,10 @@ resolve_no_box1:
 @cpy ~1 box2_circuit
 resolve_no_box2:
 rbo heap_size_inv
+
+#      box --- pairs --- circptr --- circuits --- heap_end
+# rb = ^ &box[0]
+
 
 # if box1_ptr<0 then it's either box2 or neither
 @jlt box1_ptr 0 &box1_not_connected
@@ -551,8 +566,8 @@ rbo heap_size
 rbo heap_size_inv
 not_part1_time:
 
-# adjust RB to &pairs[0]
-rbo pair_table_size
+# adjust RB from &boxes[0] -> &boxes[box_table_size] == &pairs[0]
+rbo box_table_size
 
 # pair_count had better be greater than zero
 @cpy __LINE__ assertion_failed_line
@@ -742,7 +757,8 @@ rbo &auto__stack_size
 # Upon return:
 # - ~1 contains the address of the circuit that is pointed to
 
-@fn 1 resolve_circuit_pointer(pointer_address_arg) global(boxes, heap_size, heap_size_inv, boxes_to_circuit_pointers, boxes_to_circuits, boxes_to_circuits_inv)
+@fn 1 resolve_circuit_pointer(pointer_address_arg) global(boxes, heap_size, heap_size_inv, boxes_to_circuit_pointers, boxes_to_circuits, boxes_to_circuits_inv, circuits_address)
+
 
 @cpy pointer_address_arg pointer_address
 
@@ -756,13 +772,16 @@ rbo boxes_to_circuits
 
 follow_merge:
 mul circuit_address -1 circuit_address_inv
+
 rbo circuit_address:0
 @jgt ~0 0 &final_circuit
 @cpy 1 any_merge
 @cpy ~1 circuit_address
 rbo circuit_address_inv:0
+
 @jmp &follow_merge
 final_circuit:
+rbo circuit_address_inv
 
 rbo boxes_to_circuits_inv
 

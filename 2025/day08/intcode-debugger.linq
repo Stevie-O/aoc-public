@@ -50,9 +50,9 @@ cpu.AddBreakpoint("resolve_circuit_pointer", _ => {
 	}
 });
 	cpu.AddBreakpoint("debug_heapify_pairs_done", c => Year2025Day8_DebugPairAdded(cpu, "debug_heapify_pairs_done"));
-	cpu.AddBreakpoint("fn_build_pairs__next_box2", c => Year2025Day8_DebugPhase2Pointers(cpu, "build_pairs::next_box2"));
-	cpu.AddBreakpoint("fn_build_pairs__next_box1", c => Year2025Day8_DebugPhase2Pointers(cpu, "build_pairs::next_box1"));
-	cpu.AddBreakpoint("fn_build_pairs__advance_box2", c => Year2025Day8_DebugPairAdded(cpu, "build_pairs::advance_box2"));
+	//cpu.AddBreakpoint("fn_build_pairs__next_box2", c => Year2025Day8_DebugPhase2Pointers(cpu, "build_pairs::next_box2"));
+	//cpu.AddBreakpoint("fn_build_pairs__next_box1", c => Year2025Day8_DebugPhase2Pointers(cpu, "build_pairs::next_box1"));
+	//cpu.AddBreakpoint("fn_build_pairs__advance_box2", c => Year2025Day8_DebugPairAdded(cpu, "build_pairs::advance_box2"));
 	if (false) cpu.AddBreakpoint("read_next_box", c => Year2025Day8_PrintBoxTable(cpu, "read_next_box"));
 	/*
 	{
@@ -94,7 +94,16 @@ cpu.AddBreakpoint("resolve_circuit_pointer", _ => {
 		return "?!unknown!?";
 	};
 
-	cpu.AddBreakpoint("process_next_pair", _ => { ExecutionLogFile.WriteLine("(at breakpoint) rb = {0} ({1})", cpu.Toc, cpu.DescribeToc(cpu, cpu.Toc));  });
+/*
+	cpu.AddBreakpoint(980, _ =>
+	{
+		Util.Break();
+	});
+*/
+	cpu.AddBreakpoint("process_next_pair", _ => {
+		ExecutionLogFile.WriteLine("(at breakpoint) rb = {0} ({1}), pair_count = {2}", cpu.Toc, cpu.DescribeToc(cpu, cpu.Toc), ReadVariable(cpu, "pair_count"));  
+		Year2025Day8_DebugPairAdded(cpu, "process_next_pair");
+		});
 	if (false) cpu.AddBreakpoint("loop_add", _ =>
 	{
 		using var bpout = new BreakpointOutput();
@@ -253,6 +262,8 @@ void Year2025Day8_DebugPhase2Pointers(IntcodeCpu cpu, string breakpointName)
 
 void Year2025Day8_DebugPairAdded(IntcodeCpu cpu, string breakpointName)
 {
+	// halt after heapify_pairs_done
+	if (breakpointName == "heapify_pairs_done") { cpu.Memory[cpu.Pc] = 99; }
 	var bpout = new BreakpointOutput();
 	bpout.WriteLine("{0} breakpoint hit", breakpointName);
 	bpout.WriteLine("");
@@ -283,14 +294,35 @@ void Year2025Day8_DebugPairAdded(IntcodeCpu cpu, string breakpointName)
 	var pairsMemory = cpu.Memory.Skip(pairs_address).Take(pair_table_size);
 	//bpout.WriteLine("Pairs table: {0}", string.Join(" ", pairsMemory));
 
+/*
 	bpout.WriteLine("Pairs table:");
-	foreach (var pair in FormatPairsTable(pairsMemory)) bpout.WriteLine("\t{0}", pair);
+	foreach (var pair in FormatPairsTable(pairsMemory, pair_count)) bpout.WriteLine("\t{0}", pair);
 	bpout.WriteLine("");
+	*/
+
+	var pairsTable = pairsMemory.Take(pair_count * 3).Chunk(3).ToArray();
+	bpout.WriteLine("Pairs table is valid heap? {0}", VerifyHeap<memval_t[]>(pairsTable, (a, b) => a[2] <= b[2]));
 }
 
-IEnumerable<string> FormatPairsTable(IEnumerable<memval_t> src)
+bool VerifyHeap<T>(Span<T> span, Func<T, T, bool> valid_parent_for)
 {
-	return src.Chunk(3).Select(chunk => $"{chunk[0]} {chunk[1]} {(chunk[2])}");
+	for (int parent = 0; parent < span.Length; parent++)
+	{
+		var child1 = parent * 2 + 1;
+		var child2 = child1 + 1;
+		if (child1 >= span.Length) break;
+		if (!valid_parent_for(span[parent], span[child1])) return false;
+		if (child2 >= span.Length) break;
+		if (!valid_parent_for(span[parent], span[child2])) return false;
+	}
+	return true;
+}
+
+IEnumerable<string> FormatPairsTable(IEnumerable<memval_t> src, int pair_count)
+{	
+	return src.Chunk(3).Select((chunk, i) => 
+		((i == pair_count) ? " | " : "") +
+		$"{chunk[0]} {chunk[1]} {(chunk[2])}" );
 }
 
 void Year2025Day8_PrintBoxTable(IntcodeCpu cpu, string breakpointName)
