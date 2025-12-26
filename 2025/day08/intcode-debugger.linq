@@ -7,21 +7,21 @@
   <Namespace>System.Globalization</Namespace>
 </Query>
 
-const bool WRITE_EXECLOG = true;
+const bool WRITE_EXECLOG = false;
 const bool TRACE_INPUT = true;
 const bool WRITE_OUTPUT_LOG = false;
 
 const string OUTPUT_LOG_NAME = "output.txt";
 const string INPUT_FILE_PATH =
-	"example.txt"
-	//"../../puzzle_inputs/2025-07.txt"
+	//"example.txt"
+	"../../puzzle_inputs/2025-08.txt"
 	;
 const int INSTRUCTION_LIMIT =
 	//1_000_000_000
-	500_000
+	50_000_000
 	;
 static (int address, memval_t value)[] memory_patches = {
-	(1, 10), // 1=part1_limit.  for the example, part 1 limit is 10, not 1000
+	//(1, 10), // 1=part1_limit.  for the example, part 1 limit is 10, not 1000
 };
 
 static string WorkDir;
@@ -47,7 +47,7 @@ void Main()
 })
 	{
 
-		cpu.AddBreakpoint(labelName, _ =>
+		if (false)cpu.AddBreakpoint(labelName, _ =>
 		{
 			using var bpout = new BreakpointOutput();
 			bpout.WriteLine("hit: {0}", labelName);
@@ -70,23 +70,6 @@ void Main()
 	//cpu.AddBreakpoint("fn_build_pairs__next_box1", c => Year2025Day8_DebugPhase2Pointers(cpu, "build_pairs::next_box1"));
 	//cpu.AddBreakpoint("fn_build_pairs__advance_box2", c => Year2025Day8_DebugPairAdded(cpu, "build_pairs::advance_box2"));
 	if (false) cpu.AddBreakpoint("read_next_box", c => Year2025Day8_PrintBoxTable(cpu, "read_next_box"));
-	/*
-	{
-		var bpout = new BreakpointOutput();
-		bpout.WriteLine("read_next_row hit");
-		var width = ReadVariable(cpu, "width");
-		bpout.WriteLine("width = {0}", width);
-		bpout.WriteLine("buffer = {0}", string.Join(" ", cpu.Memory.Skip(cpu.Toc).Take((int)width * 2).Where((_, i) => (i % 2) == 0)));
-		int[,] table = new int[2, width];
-		for (int i = 0; i < width; i++)
-		{
-			var address = cpu.Toc + 2 * i;
-			table[0, i] = address;
-			table[1, i] = (int)cpu.Memory[address];
-		}
-		table.Dump();
-	});
-	*/
 	cpu.DescribeToc = (_, newrb) =>
 	{
 		int heap_size = (int)ReadVariable(cpu, "heap_size");
@@ -116,9 +99,9 @@ void Main()
 			Util.Break();
 		});
 	*/
-	cpu.AddBreakpoint("process_next_pair", _ =>
+	if (false)cpu.AddBreakpoint("process_next_pair", _ =>
 	{
-		ExecutionLogFile.WriteLine("(at breakpoint) rb = {0} ({1}), pair_count = {2}", cpu.Toc, cpu.DescribeToc(cpu, cpu.Toc), ReadVariable(cpu, "pair_count"));
+		ExecutionLogFile?.WriteLine("(at breakpoint) rb = {0} ({1}), pair_count = {2}", cpu.Toc, cpu.DescribeToc(cpu, cpu.Toc), ReadVariable(cpu, "pair_count"));
 		//Year2025Day8_DebugPairAdded(cpu, "process_next_pair");
 		Year2025Day8_DebugProcessNextPair(cpu, "process_next_pair");
 	});
@@ -139,7 +122,7 @@ void Main()
 		bpout.WriteLine("loop_mul: multiplying table[{0}] = {1} to p1_accum", cpu.Toc - (first_row_address + 2 * num_columns + 1), cpu.Memory[cpu.Toc]);
 	});
 
-	cpu.AddBreakpoint(00442, _ => { ExecutionLogFile.WriteLine("[rb+5] = {0}  [rb+2] = {1}", cpu.Memory[cpu.Toc + 5], cpu.Memory[cpu.Toc + 2]); });
+	if (false) cpu.AddBreakpoint(00442, _ => { ExecutionLogFile.WriteLine("[rb+5] = {0}  [rb+2] = {1}", cpu.Memory[cpu.Toc + 5], cpu.Memory[cpu.Toc + 2]); });
 
 	if (false) cpu.AddBreakpoint("scan_first_row", _ =>
 {
@@ -149,23 +132,6 @@ void Main()
 	bpout.WriteLine("Character: '{0}'", (char)cpu.Memory[cpu.Toc]);
 });
 
-	//cpu.AddBreakpoint("debug_checkpoint_1", c => Year2025Day6_PrintState(c, "debug_checkpoint_1"));
-	//cpu.AddBreakpoint("scan_next_row", c => Year2025Day6_PrintState(c, "scan_next_row"));
-
-	//cpu.AddBreakpoint("found_operator_row", c => Year2025Day6_PrintState(c, "found_operator_row"));
-	/*
-	int operator_start_column = 0;
-	cpu.AddBreakpoint("begin_operator_add", _ => { operator_start_column = (int)ReadVariable(cpu, "input_column"); });
-	cpu.AddBreakpoint("begin_operator_mul", _ => { operator_start_column = (int) ReadVariable(cpu, "input_column"); });
-
-	cpu.AddBreakpoint("debug_update_part2_answer", _ =>
-	{
-		var p2_accum = ReadVariable(cpu, "p2_accum");
-		//var column = ReadVariable(cpu, "input_column");
-		//Console.WriteLine("p2_accum at column {0} = {1}", column, p2_accum);
-		Console.WriteLine("Subtotal for operator at column {0}: {1}", operator_start_column - 1, p2_accum);
-	});
-	*/
 
 	StreamWriter stdout_file;
 	if (WRITE_OUTPUT_LOG)
@@ -199,7 +165,7 @@ void Main()
 
 		foreach (var var_name in new string[] { "box_count", "box_table_size", "box_table_size_inv" })
 			ReadVariable(cpu, var_name).Dump(var_name);
-		cpu.Memory.Skip(_name2Addr["boxes"]).Take(size).Dump("boxes data");
+		//cpu.Memory.Skip(_name2Addr["boxes"]).Take(size).Dump("boxes data");
 	}
 	finally
 	{

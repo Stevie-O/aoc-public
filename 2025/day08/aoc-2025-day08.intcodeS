@@ -2,7 +2,7 @@ jt part1_limit:1000 &start
 hlt
 @raw raw_output: 0	 use_dle: 1  debug_box_info: 0  debug_pairs: 0 debug_pairs_heap: 0 print_stats: 1 
 start: rbo &boxes
-# weird compiler bug: it accepts "rbo heap_size:1" but not "rbo heap_size: 1". odd.
+# weird compiler quirk: it accepts "rbo heap_size:1" but not "rbo heap_size: 1". odd.
 rbo heap_size:0
 # box --- pairs --- circptr --- circuits
 # ^ &box[0]
@@ -48,6 +48,7 @@ rbo heap_size:0
 # [6]: debug_pairs:      If 1, print each pair of boxes before heapify (not very interesting)
 # [7]: debug_pairs_heap: If 1, print each pair of boxes after heapify
 # [8]: print_stats. Default 1. Print some statistics on the circuit calculations at the end
+#      (not implemented)
 
 #############################################################################
 #
