@@ -166,15 +166,31 @@ sub compile {
       die '@endfn when not in function' unless $label_prefix =~ /^fn_(\w+?)__/;
       my $fnname = $1;
       die "\@endfn during unknown function $fnname" unless $functions{$fnname};
+      my $auto_endfn = $label_prefix . 'auto__endfn';
       $label_addr{$label_prefix . 'auto__return'} = scalar @compiled;
+	  
       $label_prefix = "";
       %label_prefix_except = ();
-      return () unless $functions{$fnname}{stack_size};
-      return (
-        "rbo -$functions{$fnname}{stack_size}",
-        '@jmp ~0',
-      );
+	  
+	  my @epilogue;
+	  if ($functions{$fnname}{stack_size}) {
+		@epilogue = (
+			"rbo -$functions{$fnname}{stack_size}",
+			'@jmp ~0',
+		);
+	  }
+	  push @epilogue, "\@__declare_label $auto_endfn";
+	  #print STDERR "epilogue length: ", 0 + @epilogue, "\n";
+	  #print STDERR join(', ', map qq['$_'], @epilogue), "\n";
+	  return @epilogue;
     },
+	__declare_label => sub {
+		my ($line) = @_;
+		die "invalid \@__declare_label syntax: $line" unless $line =~ /^\@__declare_label (\w+)$/;
+		#print STDERR "declaring label $1\n";
+		$label_addr{$1} = scalar @compiled;
+		return ();
+	},
     callt => sub {
       my ($line) = @_;
       die "invalid \@callt syntax: $line" unless $line =~ /^\@callt\s+(\S+\s+)*(\S+)\s*$/;

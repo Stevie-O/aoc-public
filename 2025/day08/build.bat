@@ -1,5 +1,7 @@
 @echo off
 
+setlocal
+
 if "%~1"=="-t" (
     set TRACE=--trace
     shift

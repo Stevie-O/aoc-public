@@ -212,7 +212,17 @@ void LoadMemoryMap(string path)
 		.GroupBy(x => x.address)
 		.ToDictionary(x => x.Key, x => x.First().name);
 	_name2Addr = _memoryMap.Where(x => x.address >= 0).ToDictionary(x => x.name, x => x.address);
-
+	var allFunctions = new List<(int start, int end, string name)>();
+	foreach (var entry in _memoryMap.Where(x => x.address >= 0 && x.name.IndexOf("__") < 0))
+	{
+		var end_name = "fn_" + entry.name + "__auto__endfn";
+		if (_name2Addr.TryGetValue(end_name, out var end_address))
+		{
+			allFunctions.Add( (entry.address, end_address, entry.name) );
+		}
+	}
+	allFunctions.Sort((a, b) => a.start.CompareTo(b.start));
+	_functionMap = allFunctions.ToArray();
 }
 
 memval_t ReadVariable(IntcodeCpu cpu, string name)
@@ -433,6 +443,7 @@ class DelegateComparer<T> : IComparer<T>
 static IComparer<(int address, string name)> AddressComparer = DelegateComparer.Create<(int address, string name)>(
 		 (a, b) => a.address.CompareTo(b.address));
 
+static (int start, int end, string name)[] _functionMap;
 static (int address, string name)[] _memoryMap;
 static Dictionary<int, string> _addr2Name;
 static Dictionary<string, int> _name2Addr;
@@ -551,10 +562,66 @@ IntcodeCpu RunUntilHalt(IntcodeCpu cpu, bool print_exectime_info = true, int ins
 		instrcount.Dump("Number of instructions executed");
 		_instructionHitCount.OrderBy(x => x.Key).Select(x => new { pc = x.Key, pc_desc = DescribeAddress(x.Key, cpu.Toc), count = x.Value.Value })
 			.Dump("PC flamegraph", collapseTo: 0);
+		_instructionHitCount.Select(x =>
+				new
+				{
+					function_name = GetFunctionName(x.Key) ?? "(no function)",
+					hit_count = x.Value.Value
+				})
+			.GroupBy(i => i.function_name, i => i.hit_count)
+			.Select(g => new { function_name = g.Key, hit_count = g.Sum() })
+			//.OrderBy(f => f.function_name)
+			.OrderByDescending(f => f.hit_count)
+			.Dump("Function flamegraph");
+
+					 
 	}
 	return cpu;
 }
 
+string GetFunctionName(int address)
+{
+	var func_idx = PartitionPoint(_functionMap, f => f.end <= address);
+	if (func_idx < _functionMap.Length && address >= _functionMap[func_idx].start)
+		return _functionMap[func_idx].name;
+	return null;
+}
+
+static int PartitionPoint<T>(T[] array, Func<T, bool> predicate) =>
+	PartitionPoint(array.AsSpan(), predicate);
+
+/// <summary>Works like Rust's partition_point().
+/// </summary>
+/// <remarks>
+/// Given that there is an index _i_ in @span such that:
+/// - predicate(span[j]) == true for all 0 <= j < i, and
+/// - predicate(span[j]) == false for all j >= i,
+/// 
+/// returns i.
+/// 
+/// As a consequence, if predicate is false for all elements, returns 0,
+/// while if predicate is true for all elements, returns span.Length.
+/// </remarks>
+static int PartitionPoint<T>(ReadOnlySpan<T> span, Func<T, bool> predicate)
+{
+	var size = span.Length;
+	if (size == 0) return size;
+	int b = 0;
+	// based on Rust's slice.binary_search_by
+	while (size > 1)
+	{
+		var half = size / 2;
+		var mid = b + half;
+		var cmp = predicate(span[mid]) ? -1 : 1;
+		b = (cmp > 0) ? b : mid;
+		size -= half;
+	}
+	// note: size == 1
+	Debug.Assert(size == 1);
+	var final_cmp = predicate(span[b]) ? -1 : 1;
+	var final_result = b + ((final_cmp < 0) ? 1 : 0);
+	return final_result;
+}
 
 readonly struct IntcodeInput
 {
