@@ -1,0 +1,66 @@
+rbo &auto__end
+in ~1
+in ~2
+@call &divrem_positive
+#out 16
+out ~1
+#out 16
+out ~2
+hlt
+
+###############################################################################
+#
+# divrem_positive(a, b)
+#
+# PRECONDITION: b > 1
+#
+# (b=1 is also valid, but that will just spend a lot of unnecessary time to return (a, 0))
+#
+# Originally, 
+#
+# In theory, should require approximately 17 instructions times ceil(log2(a) - log2(b)).
+# In practice, seems to take much more? I need to study it more.
+#
+# Upon return:
+#       ~1 is q
+#		~2 is r
+#
+# where
+#	q is the smallest nonnegative integer such that a = qb + r
+#
+# if a >= 0, this means ~1 is floor(a / b) and ~2 is (a % b)
+# if a < 0, q=0 and r=a
+
+@fn 2 divrem_positive(a, b) local(q, r)
+
+# WARNING: (a, b) are aliased with (return0, return1)
+
+@jgt a b &nontrivial
+# a <= b
+eq a b q
+eq q 0 r
+# now:
+# a  < b:  q=0, r=1
+# a == b:  q=1, r=0
+mul a r r
+# now:
+# a  < b:  q=0, r=b
+# a == b:  q=1, r=0
+@jmp &no_sub
+
+nontrivial:
+# compute (a / 2b, a % 2b)
+@cpy a ~1
+mul b 2 ~2
+@call &divrem_positive
+mul ~1 2 q
+@cpy ~2 r
+@jlt ~2 b &no_sub
+mul b -1 neg_b
+add q 1 q
+add ~2 neg_b:0 r
+no_sub:
+
+@cpy q return0
+@cpy r return1
+@endfn
