@@ -64,8 +64,8 @@ void Main()
 	int next_update = Environment.TickCount;
 
 	
-	DumpContainer dc_laststats = default; //new DumpContainer().Dump("Last execution stats");
-	DumpContainer dc_flamegraph = default; //new DumpContainer().Dump("CPU flamegraph");
+	DumpContainer dc_laststats = new DumpContainer().Dump("Last execution stats");
+	DumpContainer dc_flamegraph = new DumpContainer().Dump("CPU flamegraph");
 	long slowest_version = 0;
 	for (int i = 0; i < 10_000_000; i++)
 	{
@@ -94,7 +94,7 @@ void Main()
 		long opcode_count;
 		try
 		{
-			if (true) ExecutionLogFile = new ExecutionLogFileWriter(new StreamWriter(
+			if (false) ExecutionLogFile = new ExecutionLogFileWriter(new StreamWriter(
 					Path.Combine(Path.GetDirectoryName(Util.CurrentQueryPath), @"intcode-execlog.txt"), false, new UTF8Encoding(false))
 					);
 			(final_cpu, opcode_count) = RunUntilHalt(cpu_work, false, instruction_limit: INSTRUCTION_LIMIT, dc_flamegraph);
@@ -126,7 +126,9 @@ void Main()
 				fail_count++;
 			}
 			
-			int q_value = BitOperations.Log2((uint)q) + BitOperations.PopCount((uint)q);
+			int q_value = 1 + BitOperations.Log2((uint)q) 
+				//+ BitOperations.PopCount((uint)q)
+				;
 
 			sum_log2_q += q_value;
 			//sum_log2_q += BitOperations.Log2((uint)q); //+ BitOperations.PopCount((uint)q);

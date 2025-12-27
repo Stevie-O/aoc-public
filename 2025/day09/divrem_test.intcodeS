@@ -38,20 +38,13 @@ hlt
 
 @cpy a r
 @cpy 0 q
-@jgt a b &nontrivial
-# if we're here: a <= b
-eq a b q
-eq q 0 r
-# a  < b:  q=0, r=1
-# a == b:  q=1, r=0
-mul a r r
-@jmp &exit
 
-nontrivial:
 # a > b
 # push b onto the stack
 @cpy b ~0
 @cpy 1 push_count
+@jle a b &pop_loop_start
+
 # push 2b, 4b, 8b, ... onto the stack until it's greater 
 double_b:
 mul ~0 2 ~1
@@ -60,10 +53,12 @@ add push_count 1 push_count
 @jlt ~0 r &double_b
 
 # okay, ~0 is (2^n)b for the smallest nonnegative integer n such that (2^n)b >= a
+# UNLESS a < b
 # push_count is the one more than the number of times we did 'rbo 1', which is always at least 2 here
 
 pop_loop:
 mul q 2 q
+pop_loop_start:
 @jlt r ~0 &bit_clear
 mul ~0 -1 ~0
 add r ~0 r
@@ -77,7 +72,6 @@ jt push_count:0 &pop_loop
 # and I can't figure out an elegant way to avoid that
 rbo 1
 
-exit:
 @cpy q:0 return0
 @cpy r:0 return1
 
