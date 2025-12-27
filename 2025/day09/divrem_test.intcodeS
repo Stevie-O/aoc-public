@@ -30,37 +30,55 @@ hlt
 #
 # if a >= 0, this means ~1 is floor(a / b) and ~2 is (a % b)
 # if a < 0, q=0 and r=a
+#
+# Version 2
+#   This version directly manipulates the relative base instead of making recursive calls.
 
-@fn 2 divrem_positive(a, b) local(q, r)
+@fn 2 divrem_positive(a, b)
 
-# WARNING: (a, b) are aliased with (return0, return1)
-
+@cpy a r
+@cpy 0 q
 @jgt a b &nontrivial
-# a <= b
+# if we're here: a <= b
 eq a b q
 eq q 0 r
-# now:
 # a  < b:  q=0, r=1
 # a == b:  q=1, r=0
 mul a r r
-# now:
-# a  < b:  q=0, r=b
-# a == b:  q=1, r=0
-@jmp &no_sub
+@jmp &exit
 
 nontrivial:
-# compute (a / 2b, a % 2b)
-@cpy a ~1
-mul b 2 ~2
-@call &divrem_positive
-mul ~1 2 q
-@cpy ~2 r
-@jlt ~2 b &no_sub
-mul b -1 neg_b
-add q 1 q
-add ~2 neg_b:0 r
-no_sub:
+# a > b
+# push b onto the stack
+@cpy b ~0
+@cpy 1 push_count
+# push 2b, 4b, 8b, ... onto the stack until it's greater 
+double_b:
+mul ~0 2 ~1
+rbo 1
+add push_count 1 push_count
+@jlt ~0 r &double_b
 
-@cpy q return0
-@cpy r return1
+# okay, ~0 is (2^n)b for the smallest nonnegative integer n such that (2^n)b >= a
+# push_count is the one more than the number of times we did 'rbo 1', which is always at least 2 here
+
+pop_loop:
+mul q 2 q
+@jlt r ~0 &bit_clear
+mul ~0 -1 ~0
+add r ~0 r
+add q 1 q
+bit_clear:
+rbo -1
+add push_count -1 push_count
+jt push_count:0 &pop_loop
+
+# the above loop executes "rbo -1" exactly one time too many
+# and I can't figure out an elegant way to avoid that
+rbo 1
+
+exit:
+@cpy q:0 return0
+@cpy r:0 return1
+
 @endfn

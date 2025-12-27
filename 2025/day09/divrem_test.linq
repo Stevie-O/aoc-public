@@ -63,7 +63,8 @@ void Main()
 	long sum_log2_q = 0;
 	int next_update = Environment.TickCount;
 
-	DumpContainer dc_laststats = default; new DumpContainer().Dump("Last execution stats");
+	
+	DumpContainer dc_laststats = default; //new DumpContainer().Dump("Last execution stats");
 	DumpContainer dc_flamegraph = default; //new DumpContainer().Dump("CPU flamegraph");
 	long slowest_version = 0;
 	for (int i = 0; i < 10_000_000; i++)
@@ -71,6 +72,18 @@ void Main()
 		var cpu_work = cpu.Clone();
 		var a = rng.Next();
 		var b = rng.Next();
+		
+		/*
+		a = 2034237595;
+		b = 997536529;
+		cpu_work.AddBreakpoint(75, c =>
+		{
+			Console.WriteLine();
+			Console.WriteLine("r (a) = {0}", ReadVariable(c, "fn_divrem_positive__r"));
+			Console.WriteLine("~0 = {0}", c.Memory[c.Toc]);
+		});
+		*/
+		
 		if (dc_flamegraph != null && a <= b) continue; // while it's important to verify cases where a<=b, they aren't interesting from a flamegraph perspective
 		var results = new List<long>();
 		cpu_work = cpu_work.WithIO(
@@ -113,7 +126,7 @@ void Main()
 				fail_count++;
 			}
 			
-			int q_value = BitOperations.Log2((uint)q);
+			int q_value = BitOperations.Log2((uint)q) + BitOperations.PopCount((uint)q);
 
 			sum_log2_q += q_value;
 			//sum_log2_q += BitOperations.Log2((uint)q); //+ BitOperations.PopCount((uint)q);
@@ -140,6 +153,10 @@ void Main()
 			if (slowest_version < opcode_count)
 			{
 				slowest_version = opcode_count;
+			}
+			if (!did_pass2)
+			{
+				Console.WriteLine("FAILED on a={0}, b={1}", a, b);
 			}
 		}
 		if ((Environment.TickCount - next_update) > 0)
@@ -243,6 +260,10 @@ static Dictionary<string, int> _name2Addr;
 static string DescribeAddress(int address, int rb)
 {
 	if (_memoryMap == null || _memoryMap.Length == 0) return address.ToString();
+	if (address == 70)
+	{
+		Util.Break();
+	}
 	if (address >= _memoryMap[_memoryMap.Length - 1].address)
 	{
 		var rb_diff = address - rb;
