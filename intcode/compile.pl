@@ -1,6 +1,7 @@
 #!/usr/bin/env perl
 use strict;
 use warnings FATAL => 'all';
+use v5.20;
 
 use Getopt::Long;
 
@@ -63,8 +64,27 @@ sub compile {
   my %label_linerefs;
   my $label_prefix = "";
   my %label_prefix_except;
-
+ 
   my %functions;
+ 
+  # added in v5.20 it looks?
+  # get_full_label(label) -> label with any prefix added
+  my sub get_full_label {
+    my $label = $_[0];
+    $label = "$label_prefix$label" unless $label_prefix_except{$label};
+    $label
+  }
+
+  # sanity checker for @jmp and @call
+  my sub jump_target_looks_sane {
+     # allow &label or ~offset
+     return 1 if $_[0] =~ /^(?:\w+\:)?(?:\&\w+|~-?\d+)$/;
+     if ($_[0] =~ /^(?:\w+\:)?(\w+)$/) {
+         my $label = get_full_label($1);
+         return 1 if exists $label_mode{$label};
+     }
+     return 0;
+  }
 
   my $warn = sub {
     warn "\e[33m[warn]\e[0m $_[0] at line $.\n";
@@ -148,7 +168,9 @@ sub compile {
       my $stack_size = $retaddr_stack + @stack_vars; #retval + stack vars
 
       $label_addr{$label_prefix . 'auto__stack_size'} = $stack_size;
+      $label_mode{$label_prefix . 'auto__stack_size'} = 1; # MUST be constant
       $label_addr{$label_prefix . 'auto__stack_size_inv'} = -$stack_size;
+      $label_mode{$label_prefix . 'auto__stack_size_inv'} = 1; # MUST be constant
 
       $functions{$fnname} = {
         stack_size => $stack_size,
@@ -168,35 +190,35 @@ sub compile {
       die "\@endfn during unknown function $fnname" unless $functions{$fnname};
       my $auto_endfn = $label_prefix . 'auto__endfn';
       $label_addr{$label_prefix . 'auto__return'} = scalar @compiled;
-	  
+      
       $label_prefix = "";
       %label_prefix_except = ();
-	  
-	  my @epilogue;
-	  if ($functions{$fnname}{stack_size}) {
-		@epilogue = (
-			"rbo -$functions{$fnname}{stack_size}",
-			'@jmp ~0',
-		);
-	  }
-	  push @epilogue, "\@__declare_label $auto_endfn";
-	  #print STDERR "epilogue length: ", 0 + @epilogue, "\n";
-	  #print STDERR join(', ', map qq['$_'], @epilogue), "\n";
-	  return @epilogue;
+      
+      my @epilogue;
+      if ($functions{$fnname}{stack_size}) {
+        @epilogue = (
+            "rbo -$functions{$fnname}{stack_size}",
+            '@jmp ~0',
+        );
+      }
+      push @epilogue, "\@__declare_label $auto_endfn";
+      #print STDERR "epilogue length: ", 0 + @epilogue, "\n";
+      #print STDERR join(', ', map qq['$_'], @epilogue), "\n";
+      return @epilogue;
     },
-	__declare_label => sub {
-		my ($line) = @_;
-		die "invalid \@__declare_label syntax: $line" unless $line =~ /^\@__declare_label (\w+)$/;
-		#print STDERR "declaring label $1\n";
-		$label_addr{$1} = scalar @compiled;
-		return ();
-	},
+    __declare_label => sub {
+        my ($line) = @_;
+        die "invalid \@__declare_label syntax: $line" unless $line =~ /^\@__declare_label (\w+)$/;
+        #print STDERR "declaring label $1\n";
+        $label_addr{$1} = scalar @compiled;
+        return ();
+    },
     callt => sub {
       my ($line) = @_;
       die "invalid \@callt syntax: $line" unless $line =~ /^\@callt\s+(\S+\s+)*(\S+)\s*$/;
       my $fullexpr = "$1$2";
       my $fnexpr = $2;
-      $warn->("\@callt: $fnexpr is not an address") unless $fnexpr =~ /^(?:\w+\:)?\&\w+$/;
+      $warn->("\@callt: $fnexpr is not an address") unless jump_target_looks_sane($fnexpr);
       my $ret_label = "retaddr".$gen_uid->();
       return (
         "\@cpy &$ret_label ~0",
@@ -209,7 +231,7 @@ sub compile {
       die "invalid \@callt syntax: $line" unless $line =~ /^\@callf\s+(\S+\s+)*(\S+)\s*$/;
       my $fullexpr = "$1$2";
       my $fnexpr = $2;
-      $warn->("\@callt: $fnexpr is not an address") unless $fnexpr =~ /^(?:\w+\:)?\&\w+$/;
+      $warn->("\@callt: $fnexpr is not an address") unless jump_target_looks_sane($fnexpr);
       my $ret_label = "retaddr".$gen_uid->();
       return (
         "\@cpy &$ret_label ~0",
@@ -221,7 +243,7 @@ sub compile {
       my ($line) = @_;
       die "invalid \@call syntax: $line"  unless $line =~ /^\@call\s+(\S+)\s*$/;
       my $fnexpr = $1;
-      $warn->("\@call $fnexpr is not an address") unless $fnexpr =~ /^(?:\w+\:)?\&\w+$/;
+      $warn->("\@call $fnexpr is not an address") unless jump_target_looks_sane($fnexpr);
       my $ret_label = "retaddr".$gen_uid->();
       return (
         "\@cpy &$ret_label ~0",
@@ -273,6 +295,9 @@ sub compile {
     if ($line =~ /^\@(\w+)/ && $macro{$1}) {
       warn "\e[1;31m$line\e[0m\n" if $opt->{trace};
       splice(@lines, $line_i, 1, $macro{$1}($line));
+      # 2025-12-27: if the very last line is a macro that expands to nothing
+      # (i.e. _declare_label), we need to stop here
+      last if $line_i >= @lines;
       redo;
     }
 
@@ -331,23 +356,25 @@ sub compile {
           $out_vals[$i] = $instr{$in_vals[0]}{opcode};
 
           $warn->("jump to variable address in line: $line")
-          if $in_vals[0] =~ /^j[tf]$/ &&    $in_vals[2] !~ /^(?:\w+\:)?(?:\&\w+|\~0)$|^\w+:\*-?\w+$/;
+          if $in_vals[0] =~ /^j[tf]$/ && !jump_target_looks_sane($in_vals[2]);
         }
       } else {
         my $addr_mode;
 
         if ($in_vals[$i] =~ /^([\*\~]?)(\-?\d+)$/) {
           my ($mode_str, $val) = ($1, $2);
-          $addr_mode = $mode_str eq '*' ? 0 : $mode_str eq '' ? 1 : $mode_str eq '~' ? 2 : die;
+          $addr_mode = $mode_str eq '*' ? 0 : $mode_str eq '' ? 1 : $mode_str eq '~' ? 2 : die "invalid mode character '$mode_str'";
           $out_vals[$i] = $val;
         } elsif ($in_vals[$i] eq '__LINE__') {
             $addr_mode = 1;
             $out_vals[$i] = $.;
         } elsif ($in_vals[$i] =~ /^([\&\*]?)([a-z_]\w*)$/i) {
           my ($mode_str, $label) = ($1, lc $2);
+          my $mode_str_mode = $mode_str eq '*' ? 0 : $mode_str eq '&' ? 1 : $mode_str eq '' ? 1 : $mode_str eq '~' ? 2 : die "invalid mode character '$mode_str'";
           $label = "$label_prefix$label" unless $label_prefix_except{$label};
           if (exists $label_mode{$label}) {
-            die "mode flag illegal on label $label with defined mode $label_mode{$label}" if $mode_str ne '';
+            my $mode_ok = $mode_str eq '' || ($mode_str_mode == 1 && $label_mode{$label} == 1);
+            die "mode flag illegal on label $label with defined mode $label_mode{$label}" unless $mode_ok;
             $addr_mode = $label_mode{$label};
           } else {
             $addr_mode = $mode_str eq '&' ? 1 : 0;
