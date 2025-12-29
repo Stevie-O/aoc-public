@@ -448,24 +448,33 @@ lt item2_x item1_x return0
 
 # min_heap_y_coordinate(item1, item2, unused, unused)
 # return 1 if item2 MUST be popped before item1
-@fn 1 min_heap_y_coordinate(item1, item2) local(item1_x, item2_x) global(red_tiles)
+@fn 1 min_heap_y_coordinate(item1, item2) local(item1_y, item2_y, red_tiles_y) global(red_tiles)
 
 # return 1 if:
-#	 item2.x < item1.x, -or-
-#    item2.x == item1.x AND item2 < item1
+#	 item2.y < item1.y, -or-
+#    item2.y == item1.y AND item2 < item1
 # else return 0
 
-add &red_tiles item1 read_x1
-add &red_tiles item2 read_x2
-@cpy read_x1:*0 item1_x
-@cpy read_x2:*0 item2_x
-# if item2.x < item1.x then return 
-lt item2_x item1_x return0
-# return 1 if item2.x < item1.x
+add &red_tiles 1 red_tiles_y
+
+add red_tiles_y item1 read_y1
+add red_tiles_y item2 read_y2
+@cpy read_y1:*0 item1_y
+@cpy read_y2:*0 item2_y
+# if item2.y < item1.y then return 
+lt item2_y item1_y return0
+# NOTE: after this point, item1 has been *trashed*
+# TODO: figure out a way to have the compiler help me with that shit. i've been bitten way too
+# many times.
+
+# return 1 if item2.y < item1.y
 jt return0 &auto__return
-# return 0 if item2.x > item1.x
-@jne item2_x item2_x &auto__return
-lt item2 item1 return0
+# return 0 if item2.y > item1.y
+@jne item2_y item2_y &auto__return
+# okay, item2.y == item1.y
+# return 1 if item2 < item1, else 0
+# note that item1 is no longer usable, so compare their read pointers instead
+lt read_y2 read_y1 return0
 @endfn
 
 #############################################################################
