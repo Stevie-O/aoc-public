@@ -152,14 +152,13 @@ add tile_list_start tile_list_size x_map_start
 @fn naked compress_x_loop() global(red_tiles, tile_list_start, tile_list_size, min_heap_x_coordinate, heap1w_pop, grid_width)
 
 @cpy tile_list_size tile_list_left
-add tile_list_start tile_list_size tile_list_write_ptr
 
 compress_next_x:
 
 @cpy tile_list_start tile_read_ptr
 @cpy tile_read_ptr:*0 next_tile_id
-add next_tile_id:0 &red_tiles next_tile_ptr
-@cpy next_tile_ptr:*0 next_tile_x
+add next_tile_id:0 &red_tiles next_tile_x_read_ptr
+@cpy next_tile_x_read_ptr:*0 next_tile_x
 @jeq next_tile_x:0 prev_tile_x:-1 &read_my_lips_no_new_x
 # new unique X-coordinate found
 @cpy next_tile_x prev_tile_x
@@ -168,8 +167,8 @@ rbo 1
 add grid_width 1 grid_width
 read_my_lips_no_new_x:
 # write the compressed X-coordinate back over the this tile
-@cpy tile_read_ptr tile_write_ptr
-add grid_width -1 tile_write_ptr:*0
+@cpy next_tile_x_read_ptr next_tile_x_write_ptr
+add grid_width -1 next_tile_x_write_ptr:*0
 # move onto the next one
 add tile_list_left -1 tile_list_left
 jf tile_list_left:0 &auto__return
@@ -177,15 +176,9 @@ jf tile_list_left:0 &auto__return
 @cpy tile_list_start ~1
 @cpy tile_list_left  ~2
 @cpy &min_heap_x_coordinate ~3
-@call &heap1w_pop
-
-# write the previous head element over the the newly-freed end of the array
-# (together, this is basically heapsort, but I'm not relying on that;
-#  I'm just making sure that at the end, all of the elements in the tile_list array
-#  are still there in some order)
-add tile_list_write_ptr -1 tile_list_write_ptr
-@cpy next_tile_id tile_list_write_ptr:*0
-@jmp &compress_next_x
+# tail call to heap1w_pop
+@cpy &compress_next_x ~0
+@jmp &heap1w_pop
 
 @endfn
 
@@ -221,8 +214,8 @@ compress_next_y:
 
 @cpy tile_list_start tile_read_ptr
 @cpy tile_read_ptr:*0 next_tile_id
-add next_tile_id:0 red_tiles_y:0 next_tile_ptr
-@cpy next_tile_ptr:*0 next_tile_y
+add next_tile_id:0 red_tiles_y:0 next_tile_y_read_ptr
+@cpy next_tile_y_read_ptr:*0 next_tile_y
 @jeq next_tile_y:0 prev_tile_y:-1 &read_my_lips_no_new_y
 # new unique X-coordinate found
 @cpy next_tile_y prev_tile_y
@@ -231,8 +224,8 @@ rbo 1
 add grid_height 1 grid_height
 read_my_lips_no_new_y:
 # write the compressed Y-coordinate back over the this tile
-@cpy tile_read_ptr tile_write_ptr
-add grid_height -1 tile_write_ptr:*0
+@cpy next_tile_y_read_ptr next_tile_y_write_ptr
+add grid_height -1 next_tile_y_write_ptr:*0
 # move onto the next one
 add tile_list_left -1 tile_list_left
 jf tile_list_left:0 &auto__return
@@ -487,14 +480,27 @@ lt item2 item1 return0
 
 
 @fn naked heap1w_pop()
+# first, subtract 1 from count
+add ~2 -1 ~2
 # change ~2 from count to &array[count]
 add ~1 ~2 ~2
+
+# swap array[count] and array[count-1]
+@cpy ~2 read_end_ptr
+@cpy ~1 read_root_ptr
+@cpy ~1 write_root_ptr
+@cpy ~2 write_end_ptr
+# we can use ~6 as scratch space, as we'll overwrite it in a moment
+@cpy read_end_ptr:*0 ~6
+@cpy read_root_ptr:*0 write_end_ptr:*0
+@cpy ~6 write_root_ptr:*0
+
 # assign compare_arg_rb
 @cpy ~4 ~5
 # assign root
 @cpy 0 ~6
-@endfn
 # fall through into heap1w_sift_down
+@endfn
 
 @fn 0 heap1w_sift_down(array, array_end, compare_function, compare_arg, compare_arg_rb, root)
 
