@@ -53,19 +53,20 @@ void Main()
 
 	cpu = cpu.Patch(memory_patches);
 	cpu.AddBreakpoint("debugbp__all_tiles_read", c => DebugTileCoordinates("debugbp__all_tiles_read", c));
-	cpu.AddBreakpoint("heap1w_sift_down", c =>
+	if (false) cpu.AddBreakpoint("heap1w_sift_down", c =>
 	{
 		using var bpout = new BreakpointOutput();
 		bpout.WriteLine("sifting down: root = {0}", c.Memory[c.Toc + 6]);
 	});
 
-	cpu.AddBreakpoint("fn_heap1w_sift_down__loop", c =>
+	if (false) cpu.AddBreakpoint("fn_heap1w_sift_down__loop", c =>
 	{
 		using var bpout = new BreakpointOutput();
 		bpout.WriteLine("sifting down (loop): root = {0}", c.Memory[c.Toc - 1]);
 		DebugTileHeap("sift down loop", c, bpout);
 	});
-	cpu.AddBreakpoint(883, c =>
+	// debug for comparison results
+	if (false) cpu.AddBreakpoint(883, c =>
 	{
 		using var bpout = new BreakpointOutput();
 		var array_start = c.Memory[c.Toc - 6];
@@ -77,7 +78,7 @@ void Main()
 				c.Memory[c.Toc + 1],
 				p_right - array_start);
 	});
-	cpu.AddBreakpoint(933, c =>
+	if (false) cpu.AddBreakpoint(933, c =>
 	{
 		using var bpout = new BreakpointOutput();
 		var array_start = c.Memory[c.Toc - 6];
@@ -90,12 +91,38 @@ void Main()
 				p_child - array_start);
 	});
 
+	cpu.AddBreakpoint("fn_compress_x_loop__compress_next_x", c =>
+	{
+		DebugTileCoordinates("compress_next_x", c);
+	});
 	cpu.AddBreakpoint("debugbp__build_tile_list_done", c => DebugTileHeap("debugbp__build_tile_list_done", c));
+	cpu.AddBreakpoint("debugbp__heap1w_pop_after_swap",
+			c =>
+			{
+				using var bpout = new BreakpointOutput();
+				bpout.WriteLine("breakpoint: debugbp__heap1w_pop_after_swap");
+				bpout.WriteLine();
+				bpout.WriteLine("heap array size: {0}", c.Memory[c.Toc + 2] - c.Memory[c.Toc + 1]);
+				DebugTileHeap("debugbp__heap1w_pop_after_swap", c, bpout);
+			});
 	cpu.AddBreakpoint("debugbp__x_heap_done", 
 		c => DebugTileHeap("debugbp__x_heap_done", c)
 		);
-	cpu.AddBreakpoint("debugbp__done_x_compression", c => DebugTileCoordinates("debugbp__done_x_compression", c));
-	cpu.AddBreakpoint("debugbp__done_y_compression", c => DebugTileCoordinates("debugbp__done_y_compression", c));
+	cpu.AddBreakpoint("debugbp__y_heap_done",
+		c => DebugTileHeap("debugbp__y_heap_done", c)
+		);
+	cpu.AddBreakpoint("debugbp__done_x_compression", 
+		c => DebugTileCoordinates("debugbp__done_x_compression", c)
+		);
+	cpu.AddBreakpoint("debugbp__done_y_compression", 
+		c => DebugTileCoordinates("debugbp__done_y_compression", c)
+		);
+	cpu.AddBreakpoint("draw_perimeter",
+		c =>
+		{
+			DebugTileCoordinates("draw_perimeter", c);
+		}
+	);
 
 	var input_text = File.ReadAllText(Path.Combine(dir, INPUT_FILE_PATH));
 
@@ -126,10 +153,20 @@ void Main()
 			ReadVariable(cpu, var_name).Dump(var_name);
 		var red_tiles_address = _name2Addr["red_tiles"];
 		var red_tiles_size = (int)ReadVariable(cpu, "red_tiles_size");
-		cpu.Memory.Skip(red_tiles_address).Take(red_tiles_size).Chunk(2).Select(c => $"({c[0]}, {c[1]})").Dump("tile coordinates");
+		cpu.Memory.Skip(red_tiles_address).Take(red_tiles_size).Chunk(2).Select((c, i) => $"[{red_tiles_address + 2 * i}] ({c[0]}, {c[1]})").Dump("tile coordinates");
 		var grid_start = (int)ReadVariable(cpu, "grid_start");
 		var grid_width = (int)ReadVariable(cpu, "grid_width");
 		var grid_height = (int)ReadVariable(cpu, "grid_height");
+		if (grid_width > 0)
+		{
+			var x_map_start = (int)ReadVariable(cpu, "x_map_start");
+			cpu.Memory.Skip(x_map_start).Take(grid_width).Dump("X decompression map");
+		}
+		if (grid_height > 0)
+		{
+			var y_map_start = (int)ReadVariable(cpu, "y_map_start");
+			cpu.Memory.Skip(y_map_start).Take(grid_height).Dump("Y decompression map");
+		}
 		var sb = new StringBuilder((grid_width + Environment.NewLine.Length) * grid_height);
 		for (int r = 0, addr = grid_start; r < grid_height; r++)
 		{
@@ -159,7 +196,7 @@ void DebugTileCoordinates(string breakpoint_name, IntcodeCpu cpu)
 	var red_tiles_size = (int)ReadVariable(cpu, "red_tiles_size");
 	var tile_list_address = (int)ReadVariable(cpu, "tile_list_start");
 	var tile_list_size = (int)ReadVariable(cpu, "tile_list_size");
-	cpu.Memory.Skip(red_tiles_address).Take(red_tiles_size).Chunk(2).Select(c => $"({c[0]}, {c[1]})").Dump("tile coordinates");
+	cpu.Memory.Skip(red_tiles_address).Take(red_tiles_size).Chunk(2).Select((c, i) => $"[{red_tiles_address + 2 * i}] ({c[0]}, {c[1]})").Dump("tile coordinates");
 
 
 	cpu.Memory.Skip(tile_list_address).Take(tile_list_size)
@@ -172,6 +209,20 @@ void DebugTileCoordinates(string breakpoint_name, IntcodeCpu cpu)
 			tile_y = cpu.Memory[red_tiles_address + a + 1],
 		})
 		.Dump("tile list");
+
+	var grid_width = (int)ReadVariable(cpu, "grid_width");
+	var grid_height = (int)ReadVariable(cpu, "grid_height");
+	if (grid_width > 0)
+	{
+		var x_map_start = (int)ReadVariable(cpu, "x_map_start");
+		cpu.Memory.Skip(x_map_start).Take(grid_width).Dump("X decompression map");
+	}
+	if (grid_height > 0)
+	{
+		var y_map_start = (int)ReadVariable(cpu, "y_map_start");
+		cpu.Memory.Skip(y_map_start).Take(grid_height).Dump("Y decompression map");
+	}
+
 }
 
 void DebugTileHeap(string breakpoint_name, IntcodeCpu cpu, BreakpointOutput bpout = null)

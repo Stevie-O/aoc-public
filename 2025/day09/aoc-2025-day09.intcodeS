@@ -174,7 +174,9 @@ add tile_list_left -1 tile_list_left
 jf tile_list_left:0 &auto__return
 
 @cpy tile_list_start ~1
-@cpy tile_list_left  ~2
+# we need to add 1 because tile_list_left is 1 less than the true value, since we 
+# subtracted 1 above but haven't actually called heap1w_pop yet
+add tile_list_left 1 ~2
 @cpy &min_heap_x_coordinate ~3
 # tail call to heap1w_pop
 @cpy &compress_next_x ~0
@@ -199,6 +201,11 @@ add heap_size grid_width heap_size
 @cpy &min_heap_y_coordinate ~3
 #@cpy 0 ~4
 @call &heapify_1w
+
+@cpy __LINE__ ~0
+@__declare_label debugbp__y_heap_done
+@cpy __LINE__ ~0
+
 
 # save the first element in the heap off
 @cpy tile_list_start read_top_y_tile_ptr
@@ -391,6 +398,10 @@ too_few_tiles:
 @cpy &str_too_few_tiles ~1
 @jmp &print_error_and_die
 
+attempt_to_pop_from_empty_heap:
+@cpy &str_attempt_to_pop_from_empty_heap ~1
+@jmp &print_error_and_die
+
 #                                                 ~2 ~3   ~4       ~5  ~6  ~7
 #@str str_invalid_tile_pair: "Invalid tile pair: #%d (%d, %d) and #%d (%d, %d)\n";
 
@@ -479,9 +490,13 @@ lt item2 item1 return0
 # 		0 (false)  if a >= b
 
 
-@fn naked heap1w_pop()
+@fn naked heap1w_pop() global(attempt_to_pop_from_empty_heap)
+# if the count is zero, panic
+jf ~2 &attempt_to_pop_from_empty_heap
 # first, subtract 1 from count
 add ~2 -1 ~2
+# if there's only 1 element left in the heap, return immediately
+jf ~2 ~0
 # change ~2 from count to &array[count]
 add ~1 ~2 ~2
 
@@ -495,10 +510,13 @@ add ~1 ~2 ~2
 @cpy read_root_ptr:*0 write_end_ptr:*0
 @cpy ~6 write_root_ptr:*0
 
+@__declare_label debugbp__heap1w_pop_after_swap
+
 # assign compare_arg_rb
 @cpy ~4 ~5
 # assign root
 @cpy 0 ~6
+
 # fall through into heap1w_sift_down
 @endfn
 
@@ -1123,6 +1141,7 @@ hlt
 @str str_assertion_failed_fmt: "Assertion failed on line %d\n"
 @str str_part1_answer_fmt: "Part 1: %d\n"
 @str str_part2_answer_fmt: "Part 2: %d\n"
+@str str_attempt_to_pop_from_empty_heap: "heap1w_pop: heap is empty\n"
 
 ###################################################################################
 
