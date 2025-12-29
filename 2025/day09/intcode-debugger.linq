@@ -53,9 +53,47 @@ void Main()
 
 	cpu = cpu.Patch(memory_patches);
 	cpu.AddBreakpoint("debugbp__all_tiles_read", c => DebugTileCoordinates("debugbp__all_tiles_read", c));
+	cpu.AddBreakpoint("heap1w_sift_down", c =>
+	{
+		using var bpout = new BreakpointOutput();
+		bpout.WriteLine("sifting down: root = {0}", c.Memory[c.Toc + 6]);
+	});
+
+	cpu.AddBreakpoint("fn_heap1w_sift_down__loop", c =>
+	{
+		using var bpout = new BreakpointOutput();
+		bpout.WriteLine("sifting down (loop): root = {0}", c.Memory[c.Toc - 1]);
+		DebugTileHeap("sift down loop", c, bpout);
+	});
+	cpu.AddBreakpoint(883, c =>
+	{
+		using var bpout = new BreakpointOutput();
+		var array_start = c.Memory[c.Toc - 6];
+		var p_left = c.Memory[_name2Addr["fn_heap1w_sift_down__p_left"]];
+		var p_right = c.Memory[_name2Addr["fn_heap1w_sift_down__p_right"]];
+		//var sym = c.Memory[c.Toc + 1] == 0 ? "<=" : ">";
+		bpout.WriteLine("R-L comparison result: array[{0}], array[{2}] = {1}",
+				p_left - array_start,
+				c.Memory[c.Toc + 1],
+				p_right - array_start);
+	});
+	cpu.AddBreakpoint(933, c =>
+	{
+		using var bpout = new BreakpointOutput();
+		var array_start = c.Memory[c.Toc - 6];
+		var p_root = c.Memory[_name2Addr["fn_heap1w_sift_down__p_root"]];
+		var p_child = c.Memory[_name2Addr["fn_heap1w_sift_down__p_child"]];
+		//var sym = c.Memory[c.Toc + 1] == 0 ? "<=" : ">";
+		bpout.WriteLine("P-C comparison result: array[{0}], array[{2}] = {1}",
+				p_root - array_start,
+				c.Memory[c.Toc + 1],
+				p_child - array_start);
+	});
 
 	cpu.AddBreakpoint("debugbp__build_tile_list_done", c => DebugTileHeap("debugbp__build_tile_list_done", c));
-	cpu.AddBreakpoint("debugbp__x_heap_done", c => DebugTileHeap("debugbp__x_heap_done", c));
+	cpu.AddBreakpoint("debugbp__x_heap_done", 
+		c => DebugTileHeap("debugbp__x_heap_done", c)
+		);
 	cpu.AddBreakpoint("debugbp__done_x_compression", c => DebugTileCoordinates("debugbp__done_x_compression", c));
 	cpu.AddBreakpoint("debugbp__done_y_compression", c => DebugTileCoordinates("debugbp__done_y_compression", c));
 
@@ -122,10 +160,13 @@ void DebugTileCoordinates(string breakpoint_name, IntcodeCpu cpu)
 	var tile_list_address = (int)ReadVariable(cpu, "tile_list_start");
 	var tile_list_size = (int)ReadVariable(cpu, "tile_list_size");
 	cpu.Memory.Skip(red_tiles_address).Take(red_tiles_size).Chunk(2).Select(c => $"({c[0]}, {c[1]})").Dump("tile coordinates");
+
+
 	cpu.Memory.Skip(tile_list_address).Take(tile_list_size)
 		.Select((a, i) => new
 		{
 			list_index = i,
+			list_item_address = tile_list_address + i,
 			tile_address = a,
 			tile_x = cpu.Memory[red_tiles_address + a],
 			tile_y = cpu.Memory[red_tiles_address + a + 1],
@@ -133,20 +174,35 @@ void DebugTileCoordinates(string breakpoint_name, IntcodeCpu cpu)
 		.Dump("tile list");
 }
 
-void DebugTileHeap(string breakpoint_name, IntcodeCpu cpu)
+void DebugTileHeap(string breakpoint_name, IntcodeCpu cpu, BreakpointOutput bpout = null)
 {
-	Console.WriteLine();
-	Console.WriteLine("breakpoint: {0}", breakpoint_name);
-	Console.WriteLine();
+	using var bpout2 = (bpout == null ? new BreakpointOutput() : null);
+	if (bpout == null) bpout = bpout2;
+	bpout.WriteLine();
+	bpout.WriteLine("breakpoint: {0}", breakpoint_name);
+	bpout.WriteLine();
 	var red_tiles_address = _name2Addr["red_tiles"];
 	var red_tiles_size = (int)ReadVariable(cpu, "red_tiles_size");
 	var tile_list_address = (int)ReadVariable(cpu, "tile_list_start");
 	var tile_list_size = (int)ReadVariable(cpu, "tile_list_size");
-	cpu.Memory.Skip(red_tiles_address).Take(red_tiles_size).Chunk(2).Select(c => $"({c[0]}, {c[1]})").Dump("tile coordinates");
+	//cpu.Memory.Skip(red_tiles_address).Take(red_tiles_size).Chunk(2).Select(c => $"({c[0]}, {c[1]})").Dump("tile coordinates");
+	var tiles_heap = cpu.Memory.AsSpan(tile_list_address, tile_list_size);
+	VerifyHeap(tiles_heap,
+		(a, b) =>
+		cpu.Memory[red_tiles_address + a] <= cpu.Memory[red_tiles_address + b]
+		).Dump("Valid heap? (X)");
+	VerifyHeap(tiles_heap,
+		(a, b) =>
+		{
+			var cmp = cpu.Memory[red_tiles_address + a + 1].CompareTo(cpu.Memory[red_tiles_address + b + 1]);
+			if (cmp == 0) cmp = a.CompareTo(b);
+			return cmp <= 0;
+		}).Dump("Valid heap? (X)");
 	cpu.Memory.Skip(tile_list_address).Take(tile_list_size)
 		.Select((a, i) => new
 		{
 			list_index = i,
+			list_item_address = tile_list_address + i,
 			tile_address = a,
 			tile_x = cpu.Memory[red_tiles_address + a],
 			tile_y = cpu.Memory[red_tiles_address + a + 1],
@@ -168,6 +224,7 @@ class BreakpointOutput : IDisposable
 		ExecutionLogFile?.WriteLine("");
 	}
 
+	public void WriteLine() => WriteLine("");
 	public void WriteLine(string message) { Console.WriteLine(message); ExecutionLogFile?.WriteLine(message); }
 	public void WriteLine(string format, params object[] args) { Console.WriteLine(format, args); ExecutionLogFile?.WriteLine(format, args); }
 
