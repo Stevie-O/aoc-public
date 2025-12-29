@@ -210,7 +210,9 @@ sub compile {
         my ($line) = @_;
         die "invalid \@__declare_label syntax: $line" unless $line =~ /^\@__declare_label (\w+)$/;
         #print STDERR "declaring label $1\n";
+		die "duplicate label $1" if exists $label_addr{$1};
         $label_addr{$1} = scalar @compiled;
+		$label_defline{$1} = $.;
         return ();
     },
     callt => sub {
@@ -296,7 +298,7 @@ sub compile {
       warn "\e[1;31m$line\e[0m\n" if $opt->{trace};
       splice(@lines, $line_i, 1, $macro{$1}($line));
       # 2025-12-27: if the very last line is a macro that expands to nothing
-      # (i.e. _declare_label), we need to stop here
+      # (i.e. __declare_label), we need to stop here
       last if $line_i >= @lines;
       redo;
     }
@@ -418,7 +420,7 @@ sub compile {
     }
   }
   for my $label (keys %label_addr) {
-    push @issues, "label $label defined (line $label_defline{$label}) but never referenced" unless exists $label_uses{$label} || $label =~ /^auto__/ || $label =~ /_auto__/;
+    push @issues, "label $label defined (line $label_defline{$label}) but never referenced" unless exists $label_uses{$label} || $label =~ /^auto__/ || $label =~ /_auto__/ || $label =~ /(?:^|_)debugbp__/;
   }
 
   if (@issues) {
