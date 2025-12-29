@@ -1,0 +1,1178 @@
+jf 0 &start
+@raw raw_output: 0	 use_dle: 1
+start: rbo &red_tiles
+# weird compiler quirk: it accepts "rbo heap_size:1" but not "rbo heap_size: 1". odd.
+rbo heap_size:0
+# heap layout:
+# red_tiles --- tile sort heap --- x-map --- y-map -- 2D Grid
+
+# suppress compiler errors
+@reference assertion_failed assertion_failed_line
+
+####################################################
+#
+# AOC 2025 Day 9 Intcode Solver
+#
+# Input is in ASCII (UTF-32/UCS-4), output is in ASCII (UTF-32/UCS-4).
+#
+# I don't think I could have solved this one without first solving day 8.
+#
+# Features:
+#
+# - Solves both parts
+# - No built-in limits on input size -- whatever your IntcodeVM can handle
+#
+# All CRs ('\r' aka 13 or 0x0D) in input are **completely ignored**.
+#
+# Since the input size is indeterminate, EOF must be reported via any of these means:
+#
+# - A blank line
+# - 0x00 (ASCII NUL)
+# - 0x1A (Ctrl-Z, ASCII SB; MS-DOS or CPM end-of-file indicator)
+# - 0x04 (Ctrl-D, ASCII EOT; Default EOF replacement character on *nix-style TTY drivers)
+# - a negative number (`EOF` constant returned by `fgetc`, `getc`, or `getchar`; see `stdio.h`)
+
+##########################
+#
+# EXECUTION OPTIONS BLOCK - Memory addresses 1, 4-5
+#
+# [4]: raw_output: Default 0. 0 = ASCII output for integers. 1 = Output all integers as raw integer values.
+# [5]: use_dle:    Default 1. 1 = Prefix all raw integer outputs with a a DLE (0x10) character.
+#                             This flag will normally have no effect unless RawOutput is enabled.
+
+#############################################################################
+#
+# PHASE 1: Read puzzle input
+#
+# Read each tile
+
+read_next_tile:
+
+# skip past the heap
+# read one of the following: (a) an integer (X) followed by ','  -or- (b) immediate '\n' or EOF
+@cpy ',' ~1
+@cpy 0 ~2
+@cpy 1 ~3
+@cpy 1 ~4
+@call &read_nonnegative_integer_checked
+# ~2 = 1 if we read an integer terminated by '-', 0 if it was a blank line terminated by '\n'
+jf ~2 &input_eof
+@cpy ~1 tile_x
+
+# read an integer (Y) followed by '\n'. anything else will error.
+@cpy '\n' ~1
+@cpy 0 ~2
+@cpy 0 ~3
+@cpy 0 ~4
+@call &read_nonnegative_integer_checked
+@cpy ~1 tile_y
+
+# [x, y]
+@cpy tile_x:0 ~0
+@cpy tile_y:0 ~1
+jf red_tiles_count &first_tile
+eq ~0 ~-2 same_x
+eq ~1 ~-1 same_y
+add same_x:0 same_y:0 same_xy
+@jne same_xy:0 1 &invalid_tile_pair_seq
+
+first_tile:
+rbo 2
+
+add red_tiles_count 1 red_tiles_count
+# so there are two ways to track "half the number of tiles"
+# one way requires 2 instructions per tile. I have about 500 tiles in my input, so that's about 1000 instructions.
+# the other costs about 23 instructions per bit.  That's about 10, so that's 230 instructions.
+# lo and behold: dividing the total count by 2 is still cheaper
+@jmp &read_next_tile
+
+################################################################################################
+
+input_eof:
+# we need at least 4 tiles to be valid
+@jlt red_tiles_count 4 &too_few_tiles
+
+# verify that the last tile in the input lines up with the first tile in the input
+eq first_red_x ~-2 same_x
+eq first_red_y ~-1 same_y
+add same_x same_y same_xy
+@jne same_xy 1 &invalid_tile_pair_ends
+
+# add reserve space for the wraparound (this makes things a lot easier)
+rbo 2
+
+# compute red_tiles_size and red_tiles_size_inv
+add red_tiles_count 1 red_tiles_size
+mul red_tiles_size 2 red_tiles_size
+mul red_tiles_size -1 red_tiles_size_inv
+@cpy red_tiles_size heap_size
+
+@__declare_label debugbp__all_tiles_read
+
+# now allocate the tile list heap array
+add &red_tiles red_tiles_size tile_list_start
+@cpy red_tiles_count tile_list_size
+add heap_size tile_list_size heap_size
+
+mul heap_size -1 heap_size_inv
+
+# build the tile list (simple sequential 0..n)
+# note that tile entries are *addresses*
+
+build_tile_list:
+add tile_list_count tile_list_count ~0
+rbo 1
+add tile_list_count 1 tile_list_count
+@jne tile_list_count tile_list_size &build_tile_list
+
+@__declare_label debugbp__build_tile_list_done
+
+add tile_list_start tile_list_size x_map_start
+
+###############################################################
+#
+# Phase 2.1: Compress X coordinates
+#
+###############################################################
+
+# okay, now convert it to a min-heap, ordered by X-coordinate
+@cpy tile_list_start ~1
+@cpy tile_list_count ~2
+@cpy &min_heap_x_coordinate ~3
+#@cpy 0 ~4
+@call &heapify_1w
+
+@cpy __LINE__ ~0
+@__declare_label debugbp__x_heap_done
+@cpy __LINE__ ~0
+
+# now compress the X-coordinates one-at-a-time
+
+@reference compress_x_loop
+@fn naked compress_x_loop() global(red_tiles, tile_list_start, tile_list_size, min_heap_x_coordinate, heap1w_pop, grid_width)
+
+@cpy tile_list_size tile_list_left
+add tile_list_start tile_list_size tile_list_write_ptr
+
+compress_next_x:
+
+@cpy tile_list_start tile_read_ptr
+@cpy tile_read_ptr:*0 next_tile_id
+add next_tile_id:0 &red_tiles next_tile_ptr
+@cpy next_tile_ptr:*0 next_tile_x
+@jeq next_tile_x:0 prev_tile_x:-1 &read_my_lips_no_new_x
+# new unique X-coordinate found
+@cpy next_tile_x prev_tile_x
+@cpy next_tile_x ~0
+rbo 1
+add grid_width 1 grid_width
+read_my_lips_no_new_x:
+# write the compressed X-coordinate back over the this tile
+@cpy tile_read_ptr tile_write_ptr
+add grid_width -1 tile_write_ptr:*0
+# move onto the next one
+add tile_list_left -1 tile_list_left
+jf tile_list_left:0 &auto__return
+
+@cpy tile_list_start ~1
+@cpy tile_list_left  ~2
+@cpy &min_heap_x_coordinate ~3
+@call &heap1w_pop
+
+# write the previous head element over the the newly-freed end of the array
+# (together, this is basically heapsort, but I'm not relying on that;
+#  I'm just making sure that at the end, all of the elements in the tile_list array
+#  are still there in some order)
+add tile_list_write_ptr -1 tile_list_write_ptr
+@cpy next_tile_id tile_list_write_ptr:*0
+@jmp &compress_next_x
+
+@endfn
+
+add x_map_start grid_width y_map_start
+add heap_size grid_width heap_size
+
+@__declare_label debugbp__done_x_compression
+
+###############################################################
+#
+# Phase 2.2: Compress Y coordinates
+#
+###############################################################
+
+# okay, now convert it to a min-heap, ordered by Y-coordinate
+@cpy tile_list_start ~1
+@cpy tile_list_count ~2
+@cpy &min_heap_y_coordinate ~3
+#@cpy 0 ~4
+@call &heapify_1w
+
+# save the first element in the heap off
+@cpy tile_list_start read_top_y_tile_ptr
+@cpy read_top_y_tile_ptr:*0 top_tile_index
+
+@reference compress_y_loop
+@fn naked compress_y_loop() global(red_tiles, tile_list_start, tile_list_size, min_heap_y_coordinate, heap1w_pop, grid_height)
+
+@cpy tile_list_size tile_list_left
+add &red_tiles 1 red_tiles_y
+
+compress_next_y:
+
+@cpy tile_list_start tile_read_ptr
+@cpy tile_read_ptr:*0 next_tile_id
+add next_tile_id:0 red_tiles_y:0 next_tile_ptr
+@cpy next_tile_ptr:*0 next_tile_y
+@jeq next_tile_y:0 prev_tile_y:-1 &read_my_lips_no_new_y
+# new unique X-coordinate found
+@cpy next_tile_y prev_tile_y
+@cpy next_tile_y ~0
+rbo 1
+add grid_height 1 grid_height
+read_my_lips_no_new_y:
+# write the compressed Y-coordinate back over the this tile
+@cpy tile_read_ptr tile_write_ptr
+add grid_height -1 tile_write_ptr:*0
+# move onto the next one
+add tile_list_left -1 tile_list_left
+jf tile_list_left:0 &auto__return
+
+@cpy tile_list_start ~1
+@cpy tile_list_left  ~2
+@cpy &min_heap_y_coordinate ~3
+
+# we're not using the tile list after this, so we don't need to preserve it
+@cpy &compress_next_y ~0
+@jmp &heap1w_pop
+
+@endfn
+
+@__declare_label debugbp__done_y_compression
+
+###############################################################
+#
+# Phase 2-end
+#
+###############################################################
+
+add heap_size grid_height heap_size
+
+# copy the first tile's compressed coordinates to just past the last tile
+add tile_list_start -2 write_last_entry_x
+add tile_list_start  1 write_last_entry_y
+@cpy first_red_x write_last_entry_x:*0
+@cpy first_red_y write_last_entry_y:*0
+
+
+###############################################################
+#
+# Phase 3: Build grid
+#
+###############################################################
+
+add y_map_start grid_height grid_start
+
+mul grid_height grid_width grid_size
+add heap_size grid_size heap_size
+mul heap_size -1 heap_size_inv
+
+###############################################################
+#
+# Phase 3.1: Zero out the grid
+#
+###############################################################
+
+@reference zero_grid_array
+@fn naked zero_grid_array() global(grid_size)
+
+# this can over-zero by up to 9 words, but that's okay, because there's nothing that matters after
+# that
+
+# this takes 14 cycles to zero 10 words, which is *vastly* more efficient than my original memcpy,
+# which takes 4 cycles per word plus function call overhead
+
+@cpy grid_size cells_left
+zero_loop:
+@cpy 0 ~0
+@cpy 0 ~1
+@cpy 0 ~2
+@cpy 0 ~3
+@cpy 0 ~4
+@cpy 0 ~5
+@cpy 0 ~6
+@cpy 0 ~7
+@cpy 0 ~8
+@cpy 0 ~9
+rbo 10
+add cells_left -10 cells_left
+@jgt cells_left:0 0 &zero_loop
+# now, cells_left <= 0 and if it's not 0, it's the amount we went overboard
+rbo cells_left
+
+@endfn
+
+###############################################################
+#
+# Phase 3.2: Draw the perimeter
+#
+###############################################################
+
+# now rewind the relative base to &red_tiles[0]
+rbo heap_size_inv
+
+
+@reference draw_perimeter
+@fn naked draw_perimeter() global(red_tiles, grid_start, red_tiles_count, grid_width)
+
+@cpy red_tiles_count red_tiles_left
+mul red_tiles -1 red_tiles_inv
+add grid_start red_tiles_inv:0 grid_offset
+# ~0, ~1, ~2, ~3 are (x1, y1, x2, y2)
+# draw a line from (x1, y1) to (x2, y2)
+mul ~1 grid_width first_tile_offset
+add first_tile_offset:0 ~0 first_tile_offset
+add first_tile_offset grid_offset write_first_tile
+
+# mark the first tile
+@cpy 1 write_first_tile:~0
+
+draw_next_line:
+@jeq ~0 ~2 &line_is_vertical
+# ok, line is horizontal from x=~0 to x=~2
+@cpy ~0 current_coord
+@cpy ~2 target_coord
+
+lt ~0 ~2 x_positive
+lt ~2 ~0 x_negative
+mul x_negative -1 x_negative
+add x_positive:0 x_negative:0 coord_delta
+@cpy coord_delta d_address
+@jmp &draw_next_tile
+
+line_is_vertical:
+# ok, line is vertical from y=~1 to y=~3
+@cpy ~1 current_coord
+@cpy ~3 target_coord
+
+lt ~1 ~3 y_positive
+lt ~3 ~1 y_negative
+mul y_negative -1 y_negative
+add y_positive:0 y_negative:0 coord_delta
+mul coord_delta grid_width d_address
+
+draw_next_tile:
+@cpy 1 grid_offset:~0
+add grid_offset d_address:0 grid_offset
+add current_coord coord_delta:0 current_coord
+@jne current_coord:0 target_coord:0 &draw_next_tile
+
+rbo 2
+add red_tiles_left -1 red_tiles_left
+jt red_tiles_left:0 &draw_next_line
+
+rbo 2
+rbo red_tiles_inv
+
+@endfn
+
+#############################################################################
+#
+# output answers here
+
+
+#output_answers_and_halt:
+
+@cpy &str_part1_answer_fmt ~1
+@cpy part1_answer ~2
+@call &printf
+
+@cpy &str_part2_answer_fmt ~1
+@cpy part2_answer ~2
+@call &printf
+
+hlt
+
+### error paths for main body
+
+too_few_tiles:
+@cpy &str_too_few_tiles ~1
+@jmp &print_error_and_die
+
+#                                                 ~2 ~3   ~4       ~5  ~6  ~7
+#@str str_invalid_tile_pair: "Invalid tile pair: #%d (%d, %d) and #%d (%d, %d)\n";
+
+invalid_tile_pair_seq:
+rbo 2
+@cpy &str_invalid_tile_pair ~1
+@cpy red_tiles_count ~2
+@cpy ~-4 ~3
+@cpy ~-3 ~4
+add red_tiles_count 1 ~5
+@cpy ~-2 ~6
+@cpy ~-3 ~7
+@jmp &printf_error_and_die
+
+invalid_tile_pair_ends:
+rbo 2
+@cpy &str_invalid_tile_pair ~1
+@cpy red_tiles_count ~2
+@cpy ~-4 ~3
+@cpy ~-3 ~4
+@cpy 0 ~5
+@cpy first_red_x ~6
+@cpy first_red_y ~7
+@jmp &printf_error_and_die
+
+
+
+# min_heap_x_coordinate(item1, item2, unused, unused)
+# return 1 if item2 MUST be popped before item1
+@fn 1 min_heap_x_coordinate(item1, item2) local(item1_x, item2_x) global(red_tiles)
+
+# return 1 if:
+#	 item2.x < item1.x
+# else return 0
+
+@cpy item1 read_x1
+@cpy item2 read_x2
+@cpy read_x1:*0 item1_x
+@cpy read_x2:*0 item2_x
+
+lt item2_x item1_x return0
+
+@endfn
+
+# min_heap_y_coordinate(item1, item2, unused, unused)
+# return 1 if item2 MUST be popped before item1
+@fn 1 min_heap_y_coordinate(item1, item2) local(item1_x, item2_x) global(red_tiles)
+
+# return 1 if:
+#	 item2.x < item1.x, -or-
+#    item2.x == item1.x AND item2 < item1
+# else return 0
+
+@cpy item1 read_x1
+@cpy item2 read_x2
+@cpy read_x1:*0 item1_x
+@cpy read_x2:*0 item2_x
+# if item2.x < item1.x then return 
+lt item2_x item1_x return0
+# return 1 if item2.x < item1.x
+jt return0 &auto__return
+# return 0 if item2.x > item1.x
+@jne item2_x item2_x &auto__return
+lt item2 item1 return0
+@endfn
+
+#############################################################################
+#
+# heap1w_pop(array, count, &compare_function, compare_arg)
+#
+# Pop the top element of an heap where each element is 1 word.
+#
+# - array: Address of start of array
+# - count: number of elements in the array
+# - compare_function: the address of a function callable using @call form
+# - compare_arg:      A value to be passed to &compare_function
+#
+# Arguments passed to compare_function:
+#    ~1 = element 'a'
+#    ~2 = element 'b'
+#    ~3 = compare_arg
+#    ~4 = compare_arg MINUS all stack space used by heapify_1w
+#
+# compare_function should return:
+# 		1 (true)   if a is "less than" b (b must be popped before a)
+# 		0 (false)  if a >= b
+
+
+@fn naked heap1w_pop()
+# change ~2 from count to &array[count]
+add ~1 ~2 ~2
+# assign compare_arg_rb
+@cpy ~4 ~5
+# assign root
+@cpy 0 ~6
+@endfn
+# fall through into heap1w_sift_down
+
+@fn 0 heap1w_sift_down(array, array_end, compare_function, compare_arg, compare_arg_rb, root)
+
+add compare_arg_rb &auto__stack_size_inv compare_arg_rb
+
+# reminders:
+# iLeftChild(idx)   = 2*idx + 1
+# iRightChild(idx)  = 2*idx + 2
+
+loop:
+mul root 2 i_child
+add i_child 1 i_child
+add array i_child:0 p_left
+# stop unless p_left < &array[count]
+@jge p_left array_end &auto__return
+add p_left 1 p_right
+@jge p_right array_end &no_right_child_or_right_not_greater
+@cpy p_left:*0 ~1
+@cpy p_right:*0 ~2
+@cpy compare_arg ~3
+@cpy compare_arg_rb ~4
+@call compare_function
+jf ~1 &no_right_child_or_right_not_greater
+add p_left 1 p_left
+add i_child 1 i_child
+no_right_child_or_right_not_greater:
+@cpy p_left p_child
+add array root p_root
+
+@cpy p_root:*0 ~1
+@cpy p_child:*0 ~2
+@cpy ~1 swap1
+@cpy ~2 swap2
+@cpy compare_arg ~3
+@cpy compare_arg_rb ~4
+@call compare_function
+jf ~1 &auto__return
+@cpy p_root p_root_write
+@cpy p_child p_child_write
+@cpy swap2:0 p_root_write:*0
+@cpy swap1:0 p_child_write:*0
+@cpy i_child root
+@jmp &loop
+
+@endfn
+
+#############################################################################
+#
+# heapify_1w(array, count, &compare_function, compare_arg)
+#
+# Convert an array of 1-word elements into a binary heap.
+#
+# - array: Address of start of array
+# - count: number of elements in the array
+# - compare_function: the address of a function callable using @call form
+# - compare_arg:      A value to be passed to &compare_function
+#
+# Arguments passed to compare_function:
+#    ~1 = element 'a'
+#    ~2 = element 'b'
+#    ~3 = compare_arg
+#    ~4 = compare_arg MINUS all stack space used by heapify_1w
+#
+# compare_function should return:
+# 		1 (true)   if a is "less than" b (b must be popped before a)
+# 		0 (false)  if a >= b
+
+@fn 0 heapify_1w(array, count, compare_function, compare_arg) local(start, compare_arg_rb) global(divrem_positive, heap1w_sift_down)
+
+# an array with fewer than 2 elements is always sorted
+@jlt count 2 &auto__return
+add count -1 ~1
+@cpy 2 ~2
+# note that this relies on divrem_positive returning 0 when its first argument is negative
+@call &divrem_positive
+add ~1 1 start
+
+# note that we're guaranteed that start >= 2
+# that's because count >= 2, which means (count/2) >= 1, and we added 1 to that
+
+add compare_arg &auto__stack_size_inv compare_arg_rb
+
+sift_down_loop:
+@cpy array ~1
+add array count ~2
+@cpy compare_function ~3
+@cpy compare_arg ~4
+@cpy compare_arg_rb ~5
+@cpy start ~6
+@call &heap1w_sift_down
+add start -1 start
+jt start &sift_down_loop
+
+# https://en.wikipedia.org/wiki/Heapsort
+# thanks to @atom on the Discord
+
+@endfn
+
+############################################################################################
+# math.lib
+# version 20251205-0001
+
+###############################################################################
+#
+# divrem_positive(a, b)
+#
+# PRECONDITION: b > 1
+#
+# (b=1 is also valid, but that will just spend a lot of unnecessary time to return (a, 0))
+#
+# Upon return:
+#       ~1 is q
+#		~2 is r
+#
+# where
+#	q is the smallest nonnegative integer such that a = qb + r
+#
+# if a >= 0, this means ~1 is floor(a / b) and ~2 is (a % b)
+# if a < 0, q=0 and r=a
+#
+# Version 2
+#   This version directly manipulates the relative base instead of making recursive calls.
+
+@fn 2 divrem_positive(a, b)
+
+@cpy a r
+@cpy 0 q
+
+# a > b
+# push b onto the stack
+@cpy b ~0
+@cpy 1 push_count
+@jle a b &pop_loop_start
+
+# push 2b, 4b, 8b, ... onto the stack until it's greater 
+double_b:
+mul ~0 2 ~1
+rbo 1
+add push_count 1 push_count
+@jlt ~0 r &double_b
+
+# okay, ~0 is (2^n)b for the smallest nonnegative integer n such that (2^n)b >= a
+# push_count is the one more than the number of times we did 'rbo 1'
+
+pop_loop:
+mul q 2 q
+pop_loop_start:
+@jlt r ~0 &bit_clear
+mul ~0 -1 ~0
+add r ~0 r
+add q 1 q
+bit_clear:
+rbo -1
+add push_count -1 push_count
+jt push_count:0 &pop_loop
+
+# the above loop executes "rbo -1" exactly one time too many
+# and I can't figure out an elegant way to avoid that
+rbo 1
+
+@cpy q:0 return0
+@cpy r:0 return1
+
+@endfn
+
+############################################################################################
+# memset.lib
+# version 20251205-0001
+
+###############################################################################
+#
+# memset(address, value, count)
+#
+# Just like the C standard function.
+#
+# NOTE: if count < 0, will loop forever
+#
+# 4 instructions per word. not very efficient.
+
+# @fn 0 memset(dest, ch, count)
+
+# jf count &skip
+# @cpy dest rdi
+# loop:
+# @cpy ch rdi:*0
+# add rdi 1 rdi
+# add count -1 count
+# jt count &loop
+# skip:
+
+# @endfn
+
+############################################################################################
+# input.lib
+# version 20251227-0001
+
+#############################################################################
+#
+# read_nonnegative_integer_checked(expected_terminator, empty_mode, newline_mode, eof_mode)
+#
+# Read a nonnegative integer from stdin, doing additional validation
+#
+# expected_terminator (~1): the character that is expected to terminate the number
+# empty_mode          (~2): behavior if no characters are read
+#       0 = zero-length input is invalid. even if the expected terminator is read, it counts as unexpected.
+#       1 = zero-length input is valid, the returned value is zero
+# newline_mode        (~2): behavior if terminated by '\n'
+#       set to -1 if expected_terminator is '\n' and eof_mode is -1
+#       0 = newline is invalid and will be treated as any other invalid character
+#       1 = newline is valid if and only if it was the only character read
+#      -1 = newline is a valid alternate to expected_terminator
+# eof_mode            (~3): behavior if terminated by EOF
+#      -1 = treat EOF as newline
+#       0 = EOF is invalid and will generate an "unexpected EOF"
+#       1 = EOF is valid if it was read immediately
+#
+# Return values:
+#       ~1 = the value that was read (or 0 if no digits were read, but the read was still considered successful)
+#       ~2 = 1 if a value was successfully read
+#            0 if a blank input was successfully read
+#           -1 if a value was successfully read and terminated by a newline instead of expected_terminator
+#           -2 if a value was successfully read and terminated by an EOF instead of expected_terminator
+#
+# This is really complicated, so I'm making a tool to help me test it.
+#
+# | expected_terminator | empty_mode | newline_mode | eof_mode | input            | outcome
+# |---------------------|------------|--------------|----------|------------------|---------------------------
+
+@fn 2 read_nonnegative_integer_checked(expected_terminator, empty_mode, newline_mode, eof_mode) local(status) global(read_nonnegative_integer, report_unexpected_character, report_unexpected_eof)
+
+@call &read_nonnegative_integer
+# set status to 1 if we read a value, else 0
+lt 0 ~2 status
+@jeq ~3 expected_terminator &got_expected_terminator
+@jeq ~3 '\n' &got_newline
+jf ~3 &got_eof
+# we didn't get the expected terminator, a newline, *or* EOF. bail.
+@jmp &report_unexpected_character
+
+got_expected_terminator:
+# if empty_mode is 1, we always accept the expected terminator
+jt empty_mode &exit_fn
+# if empty_mode is 0, we accept only if we read a value
+jt status &exit_fn
+@jmp &report_unexpected_character
+
+got_eof:
+# if eof_mode is 0, eof is unexpected
+jf eof_mode &report_unexpected_eof
+# if eof_mode is -1, eof is treated like a newline
+@jlt eof_mode 0 &got_newline
+# if eof_mode is 1, eof is valid only if we didn't read any digits
+jf status &exit_fn
+@jmp &report_unexpected_eof
+
+got_newline:
+# if newline_mode is 0, treat it as an invalid character
+jf newline_mode &report_unexpected_character
+jf status &no_adjust_status
+eq ~3 0 actually_eof
+add status actually_eof:0 status
+mul status -1 status
+no_adjust_status:
+# if newline_mode is -1, it acts like expected_terminator
+@jlt newline_mode 0 &got_expected_terminator
+# otherwise, newline_mode is 1, and it's only valid when we didn't read any digits
+jf status &exit_fn
+@jmp &report_unexpected_character
+
+exit_fn:
+@cpy ~1 return0
+@cpy status return1
+
+@endfn
+
+report_unexpected_character:
+# having this jump makes eof_mode easier to implement
+jf ~3 &report_unexpected_eof
+
+@cpy &str_unexpected_character_in_input_fmt ~1
+@cpy ~3 ~2
+add input_line 1 ~3
+add input_column 1 ~4
+@jmp &printf_error_and_die
+
+report_unexpected_eof:
+@cpy &str_unexpected_end_of_file_fmt ~1
+add input_line 1 ~2
+add input_column 1 ~3
+@jmp &printf_error_and_die
+
+############################################################################################
+# input.lib
+# version 20251205-0001
+
+# 0-based line and column number for stdin
+@raw pending_newline: 0 input_line: 0 input_column: 0
+
+#############################################################################
+#
+# Read a nonnegative integer from input.
+#
+# Return values:
+#    ~1 - the value that was read, -or- 0 if no digits were read
+#    ~2 - the number of digits that were read
+#    ~3 - the (non-digit) input value that terminated the read, or 0 if the input was terminated by an EOF indicator
+#
+# Revision history:
+# - Version 20251227-0001:
+#   Most inputs are digits, so check for >= '0' FIRST.
+#   This increases the size of the program slightly, but it reduces the number of instructions that
+#   must be executed for each digit by 6.  That adds up a *lot*
+# - Initial version: 
+#    I didn't think to keep track of it
+
+@fn 3 read_nonnegative_integer() local(acc, digit_count, ch) global(pending_newline, input_line, input_column)
+
+@cpy 0 acc
+@cpy 0 digit_count
+
+# if the last read terminated in '\n', increment the line number and reset the column
+jf pending_newline &read_loop
+@cpy 0 pending_newline
+add input_line 1 input_line
+@cpy 0 input_column
+
+read_loop:
+in ch
+@jge ch '0' &probably_digit
+@jeq ch '\r' &read_loop
+@jle ch 4 &handle_eof
+@jeq ch 26 &handle_eof
+add input_column 1 input_column
+@jmp &terminate
+probably_digit:
+add input_column 1 input_column
+@jgt ch '9' &terminate
+add digit_count 1 digit_count
+add ch -'0' ch
+mul acc 10 acc
+add acc ch acc
+@jmp &read_loop
+
+handle_eof:
+@cpy 0 ch
+
+terminate:
+# if we stopped because of a newline, set things up so we'll increment the line number and reset the column number on the next read
+# not only is doing it that way slightly easier, it means that error messages caused by an unexpected newline won't be reported
+# against the wrong line
+eq ch '\n' pending_newline
+
+# with no parameters:
+# 	acc and return0 are aliased
+#   digit_count and return1 are aliased
+#   ch and return2 are aliased
+#
+# also, in retrospect, topaz should've made them return1, return2, return3 -- that way their names would match the ~1 ~2 ~3 you use
+# in the code.
+
+@reference return0 return1 return2
+
+@endfn
+
+############################################################################################
+# output.lib
+# version 20251205-0001
+
+############################################################################################
+#
+#  output_integer(value)
+#
+# in ASCII mode, prints value in ASCII
+# in raw mode, outputs value directly
+# if raw mode is enabled and use_dle is on, raw values are prefixed with 0x10 (DLE)
+
+@fn 0 output_integer(value) global(print_decimal, raw_output, use_dle)
+
+jt raw_output &do_raw_output
+# this works ONLY when both routines have the same number of locals+parameters
+# UPDATE: tail-call doesn't actually work correctly because the relative base register (i.e. stack pointer) isn't adjusted correctly.
+@cpy value ~1
+@cpy &no_raw_output ~0
+@jmp &print_decimal
+
+do_raw_output:
+
+jf use_dle &no_dle
+out 16
+no_dle:
+out value
+
+no_raw_output:
+
+@endfn
+
+# print possibly-negative decimal number
+print_decimal:
+lt ~1 0 _print_decimal_is_negative
+jf _print_decimal_is_negative:0 &print_nonnegative_decimal
+out '-'
+mul ~1 -1 ~1
+# fall through to print_nonnegative_decimal
+
+# print nonnegative decimal number (negative numbers will not be printed)
+# changing this to support negatives would be easy but I don't need it
+@fn 0 print_nonnegative_decimal(n) global(print_next_decimal_digit)
+jf n &print_zero
+@cpy n ~1
+@cpy 1 ~2
+@call &print_next_decimal_digit
+@jmp &exitfun
+print_zero: out '0'
+exitfun:
+@endfn
+
+@fn 1 print_next_decimal_digit(n, mask) local(dig, negmask)
+
+# PRECONDITIONS: n >= mask, mask is a power of 10
+# POSTCONDITIONS: upon return, ~1 has all powers of 10 greater than mask removed
+
+@cpy n ~1
+@jlt n mask &exitfn
+
+mul mask 10 ~2
+@call &print_next_decimal_digit
+@cpy ~1 n
+
+mul mask -1 negmask
+@cpy '0' dig
+compute_digit:
+@jlt n mask &done_compute_digit
+add dig 1 dig
+add n negmask n
+@jmp &compute_digit
+done_compute_digit:
+
+out dig
+
+exitfn:
+@cpy n return0
+@endfn
+
+
+# GOTCHA: return parameters and incoming arguments share stack space, so be careful
+
+#########################################################
+#
+# print_string(&str)
+
+@fn 0 print_string(string_address) local(strlen, tmpchar)
+
+@cpy string_address read_strlen
+add read_strlen:*0 0 strlen
+add 1 string_address string_reader
+message_print_loop:
+add string_reader:*0 0 tmpchar
+add string_reader 1 string_reader
+out tmpchar
+add strlen -1 strlen
+jt strlen &message_print_loop
+
+@endfn
+
+#########################################################
+#
+# printf(&str, ...)
+#
+# TODO: experiment with using NUL-terminated strings instead.
+
+@fn 0 printf(format_string, arg0, arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8, arg9) global(output_integer)
+
+@reference arg1 arg2 arg3 arg4 arg5 arg6 arg7 arg8 arg9
+@cpy 0 arg_shift
+@cpy format_string read_length_ptr
+@cpy read_length_ptr:*0 format_string_length
+jf format_string_length:0 &exit_fn
+add format_string 1 read_string_ptr
+
+process_next_char:
+@cpy read_string_ptr:*0 next_char
+add read_string_ptr 1 read_string_ptr
+add format_string_length -1 format_string_length
+@jeq next_char '%' &process_format
+out next_char:0
+@jmp &advance_loop
+process_format:
+@cpy read_string_ptr read_string_ptr2
+@cpy read_string_ptr2:*0 next_char
+add read_string_ptr 1 read_string_ptr
+add format_string_length -1 format_string_length
+@jeq next_char '%' &format_literal_percent
+@jeq next_char 'c' &format_char
+@jeq next_char 'C' &format_printable_char
+# assume %d by default
+
+format_integer:
+@cpy arg0 ~1
+@call &output_integer
+rbo 1
+add arg_shift -1 arg_shift
+@jmp &advance_loop
+
+format_literal_percent:
+out '%'
+@jmp &advance_loop
+
+format_printable_char:
+@jge arg0 32 &format_char
+out '\\'
+@jeq arg0 '\n' &escape_n
+@jeq arg0 '\r' &escape_r
+@jeq arg0 0 &escape_0
+@jeq arg0 '\t' &escape_t
+out '\\'
+out 'd'
+@jmp &format_integer
+escape_n:
+@cpy 'n' arg0
+@jmp &format_char
+escape_r:
+@cpy 'r' arg0
+@jmp &format_char
+escape_0:
+@cpy '0' arg0
+@jmp &format_char
+escape_t:
+@cpy 't' arg0
+@jmp &format_char
+
+format_char:
+out arg0
+rbo 1
+add arg_shift -1 arg_shift
+@jmp &advance_loop
+
+advance_loop:
+jt format_string_length &process_next_char
+
+exit_fn:
+rbo arg_shift:0
+@endfn
+
+#####################################
+#
+# error routines. call with @jmp, not @call (well, @call is fine, but it's a waste)
+
+####################################
+#
+# assertion_failed()
+#
+# Print out "Error: Assertion failed on line <line number>" and halt.
+
+assertion_failed:
+@cpy &str_assertion_failed_fmt ~1
+@cpy assertion_failed_line:0 ~2
+@jmp &printf_error_and_die
+
+#####################################
+#
+# print_error_and_die(&str_message)
+#
+# Outputs "Error: " followed by the supplied message, then halts.
+#
+
+print_error_and_die:
+rbo 2
+@cpy &str_error ~1
+@call &print_string
+rbo -2
+# fall through to print_and_die
+@reference print_and_die
+
+#####################################
+#
+# print_and_die(&str_message)
+#
+# Outputs the supplied message, then halts.
+
+print_and_die:
+@call &print_string
+hlt
+
+#####################################
+#
+# printf_error_and_die(&str_format, ...)
+#
+# Outputs "Error: " followed by the formatted message, then halts.
+
+printf_error_and_die:
+# move the stack pointer far, far away so we don't trash the incoming parameters
+rbo 100
+@cpy &str_error ~1
+@call &print_string
+rbo -100
+# fall through to print_and_die
+@reference printf_and_die
+
+#####################################
+#
+# printf_and_die(&str_format, ...)
+#
+# Outputs the formatted message, then halts.
+
+printf_and_die:
+@call &printf
+hlt
+
+###################################################################################
+# Strings
+
+@str str_error: "Error: "
+@str str_too_few_tiles: "Too few tiles (need at least 4)\n"
+@str str_invalid_tile_pair: "Invalid tile pair: #%d (%d, %d) and #%d (%d, %d)\n"
+@str str_unexpected_character_in_input_fmt: "Unexpected character '%C' in input at line %d, column %d\n"
+@str str_unexpected_end_of_file_fmt: "Unexpected end-of-file in input at line %d, column %d\n"
+@str str_assertion_failed_fmt: "Assertion failed on line %d\n"
+@str str_part1_answer_fmt: "Part 1: %d\n"
+@str str_part2_answer_fmt: "Part 2: %d\n"
+
+###################################################################################
+
+@raw part1_answer:0 part2_answer:0
+
+@raw heap_size_inv: 0
+
+# size of red_tiles array
+@raw red_tiles_size: 0
+# negative of size of red_tiles array
+@raw red_tiles_size_inv: 0
+# number of red tiles
+@raw red_tiles_count: 0
+# tile_list_start = address of tile_list heap (array)
+@raw tile_list_start: 0
+# tile_list_count = number of elements in tile_list
+@raw tile_list_count: 0
+# tile_list_size = size of tile_list heap (array)
+@raw tile_list_size:  0
+# x_map_start = address of x_map   (size is grid_width)
+@raw x_map_start: 0
+# y_map_start = address of y_map   (size is grid_height)
+@raw y_map_start: 0
+# index of the first tile (in input order) with a topmost Y coordinate
+#		Invariant: After this variable has been initialized,
+#		red_tiles[top_tile_index].y == red_tiles[top_tile_index+1].y
+#		red_tiles[top_tile_index].y != red_tiles[top_tile_index+1].y
+#		(which is equal to 0 after y-compression is performed)
+#
+#		if red_tiles[top_tile_index].x < red_tiles[top_tile_index+1].x,
+#			the perimeter is drawn counterclockwise.
+#		if red_tiles[top_tile_index].x > red_tiles[top_tile_index+1].x,
+#			the perimeter is drawn clockwise
+@raw top_tile_index: 0
+# width of 2D grid, negative width of 2D grid
+@raw grid_width:  0
+@raw grid_height: 0
+@raw grid_size:   0 
+# grid_start = address of 2D grid
+@raw grid_start: 0
+
+red_tiles:
+@raw first_red_x: 0 first_red_y: 0
+# red_tiles:
+# sizeof(entry)=2  x, y
+# has one more entry than the input; the last entry is a copy of the first entry,
+# to simplify other logic
+
+# tile sort heap:
+# sizeof(entry) = 1    offset (2 * index) from start of red_tiles
+
+# x-map:
+# sizeof(entry) = 1    x-map[x] is the decompressed X-coordinate for compressed X
+# y-map:
+# sizeof(entry) = 1    y-map[y] is the decompressed Y-coordinate for compressed Y
+#
+# 2D grid:
+# sizeof(entry) = 1		entry[row][col]
+#						 0 = non-red/green OR untested
+#						 1 = red/green tile
+#
+# and then after that is the stack.
