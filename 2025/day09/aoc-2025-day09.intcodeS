@@ -238,10 +238,8 @@ add tile_list_left -1 tile_list_left
 jf tile_list_left:0 &auto__return
 
 @cpy tile_list_start ~1
-@cpy tile_list_left  ~2
+add tile_list_left 1 ~2
 @cpy &min_heap_y_coordinate ~3
-
-# we're not using the tile list after this, so we don't need to preserve it
 @cpy &compress_next_y ~0
 @jmp &heap1w_pop
 

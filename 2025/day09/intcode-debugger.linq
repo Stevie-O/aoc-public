@@ -91,9 +91,13 @@ void Main()
 				p_child - array_start);
 	});
 
-	cpu.AddBreakpoint("fn_compress_x_loop__compress_next_x", c =>
+	if (false) cpu.AddBreakpoint("fn_compress_x_loop__compress_next_x", c =>
 	{
 		DebugTileCoordinates("compress_next_x", c);
+	});
+	cpu.AddBreakpoint("fn_compress_y_loop__compress_next_y", c =>
+	{
+		DebugTileCoordinates("compress_next_y", c);
 	});
 	cpu.AddBreakpoint("debugbp__build_tile_list_done", c => DebugTileHeap("debugbp__build_tile_list_done", c));
 	cpu.AddBreakpoint("debugbp__heap1w_pop_after_swap",
