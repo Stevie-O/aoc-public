@@ -474,7 +474,7 @@ lt item2_y item1_y return0
 # return 1 if item2.y < item1.y
 jt return0 &auto__return
 # return 0 if item2.y > item1.y
-@jne item2_y item2_y &auto__return
+@jne item2_y item1_y &auto__return
 # okay, item2.y == item1.y
 # return 1 if item2 < item1, else 0
 # note that item1 is no longer usable, so compare their read pointers instead

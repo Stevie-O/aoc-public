@@ -356,6 +356,9 @@ sub compile {
           die "wrong number of args for instruction $in_vals[0] of line: $line" unless @in_vals == $instr{$in_vals[0]}{args}+1;
           die "wrong length lval definition for instruction $in_vals[0]" unless $instr{$in_vals[0]}{args} == @{$instr{$in_vals[0]}{lvals}};
           $out_vals[$i] = $instr{$in_vals[0]}{opcode};
+		  
+		  $warn->("comparing a value with itself in line: $line")
+			if ($in_vals[0] =~ /^(?:eq|lt)$/ && $in_vals[1] eq $in_vals[2]);
 
           $warn->("jump to variable address in line: $line")
           if $in_vals[0] =~ /^j[tf]$/ && !jump_target_looks_sane($in_vals[2]);
