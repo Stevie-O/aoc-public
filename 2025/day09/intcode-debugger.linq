@@ -117,6 +117,30 @@ void Main()
 	cpu.AddBreakpoint("debugbp__done_y_compression", 
 		c => DebugTileCoordinates("debugbp__done_y_compression", c)
 		);
+	cpu.AddBreakpoint("fn_draw_perimeter__draw_next_line", c =>
+	{
+		using var bpout = new BreakpointOutput();
+		var rb = c.Toc;
+		bpout.WriteLine("Draw a line from ({0}, {1}) to ({2}, {3})", 
+			cpu.Memory[rb + 0], cpu.Memory[rb + 1],
+			cpu.Memory[rb + 2], cpu.Memory[rb + 3]
+		);
+	});
+	cpu.AddBreakpoint("fn_draw_perimeter__draw_next_tile_start", c =>
+	{
+		using var bpout = new BreakpointOutput();
+		var grid_start = (int) ReadVariable(c, "grid_start");
+		var grid_width = (int) ReadVariable(c, "grid_width");
+		//var grid_height = (int) ReadVariable(c, "grid_height");
+		// +0 is the instruction (add)
+		// +1 is 1
+		// +2 is 0
+		// +3 is the destination address
+		var rb_offset = (int)c.Memory[c.Pc + 3];
+		var write_address = rb_offset + c.Toc;
+		var grid_offset = write_address - grid_start;
+		bpout.WriteLine("Drawing tile at x={0}, y={1}", grid_offset % grid_width, grid_offset / grid_width);
+	});
 	cpu.AddBreakpoint("draw_perimeter",
 		c =>
 		{

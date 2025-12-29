@@ -325,13 +325,14 @@ rbo heap_size_inv
 @fn naked draw_perimeter() global(red_tiles, grid_start, red_tiles_count, grid_width)
 
 @cpy red_tiles_count red_tiles_left
-mul red_tiles -1 red_tiles_inv
+mul &red_tiles -1 red_tiles_inv
 add grid_start red_tiles_inv:0 grid_offset
 # ~0, ~1, ~2, ~3 are (x1, y1, x2, y2)
 # draw a line from (x1, y1) to (x2, y2)
 mul ~1 grid_width first_tile_offset
 add first_tile_offset:0 ~0 first_tile_offset
-add first_tile_offset grid_offset write_first_tile
+add first_tile_offset grid_offset grid_offset
+@cpy grid_offset write_first_tile
 
 # mark the first tile
 @cpy 1 write_first_tile:~0
@@ -347,7 +348,7 @@ lt ~2 ~0 x_negative
 mul x_negative -1 x_negative
 add x_positive:0 x_negative:0 coord_delta
 @cpy coord_delta d_address
-@jmp &draw_next_tile
+@jmp &draw_next_tile_start
 
 line_is_vertical:
 # ok, line is vertical from y=~1 to y=~3
@@ -359,17 +360,22 @@ lt ~3 ~1 y_negative
 mul y_negative -1 y_negative
 add y_positive:0 y_negative:0 coord_delta
 mul coord_delta grid_width d_address
+@jmp &draw_next_tile_start
 
 draw_next_tile:
-@cpy 1 grid_offset:~0
 add grid_offset d_address:0 grid_offset
 add current_coord coord_delta:0 current_coord
+draw_next_tile_start:
+@cpy 1 grid_offset:~0
 @jne current_coord:0 target_coord:0 &draw_next_tile
 
 rbo 2
+# compensate for the rbo 2
+add grid_offset -2 grid_offset
 add red_tiles_left -1 red_tiles_left
 jt red_tiles_left:0 &draw_next_line
 
+# skip past the very end of the array
 rbo 2
 rbo red_tiles_inv
 
