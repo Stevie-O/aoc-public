@@ -98,6 +98,26 @@ eq first_red_y ~-1 same_y
 add same_x same_y same_xy
 @jne same_xy 1 &invalid_tile_pair_ends
 
+# compute the direction of the final line
+
+@reference compute_final_dx
+@fn naked compute_final_dx() global(first_red_x, final_dx)
+lt first_red_x ~-2 dx_positive
+lt ~-2 first_red_x dx_negative
+mul dx_negative -1 dx_negative
+add dx_positive:0 dx_negative:0 final_dx
+@endfn
+
+@reference compute_final_dy
+@fn naked compute_final_dy() global(first_red_y, final_dy)
+lt first_red_y ~-1 dy_positive
+lt ~-1 first_red_y dy_negative
+# NOTE: during processing, we're going to flip the Y-axis so that Y *decreases* as you go downward
+# thus, we need to make dy_positive be -1 and dy_negative be 1
+mul dy_positive -1 dy_positive
+add dy_positive:0 dy_negative:0 final_dy
+@endfn
+
 # add reserve space for the wraparound (this makes things a lot easier)
 rbo 2
 
@@ -247,19 +267,63 @@ add tile_list_left 1 ~2
 
 @__declare_label debugbp__done_y_compression
 
+add heap_size grid_height heap_size
+mul heap_size -1 heap_size_inv
+
+###############################################################
+#
+# Phase 2.3: Determine perimeter orientation
+#
+###############################################################
+#
+# +1: the inside of the perimeter is to the RIGHT of each line as it is being drawn
+#     (the perimeter is drawn clockwise)
+# -1: the inside of the perimeter is to the LEFT of each line as it is being drawn
+#     (the perimeter is drawn counterclockwise)
+
+# note that this is the exact opposite of the mathematical definition of polygon orientation,
+# where positive means counterclockwise, and negative means clockwise.
+
+rbo heap_size_inv
+
+@reference find_perimeter_orientation
+@fn naked find_perimeter_orientation() global(top_tile_index, perimeter_orientation, assertion_failed, assertion_failed_line)
+mul top_tile_index -1 top_tile_index_inv
+rbo top_tile_index
+# we are now pointed at the FIRST tile with the SMALLEST (in input) Y-coordinate
+@cpy __LINE__ assertion_failed_line
+@jne ~1 ~3 &assertion_failed
+# we should either have (~0 < ~2) meaning clockwise,
+# or (~2 > ~0) meaning counterclockwise
+lt ~0 ~2 is_clockwise
+lt ~2 ~0 is_ccw
+mul is_ccw -1 is_ccw
+add is_clockwise:0 is_ccw:0 perimeter_orientation
+@cpy __LINE__ assertion_failed_line
+jf perimeter_orientation &assertion_failed
+
+rbo top_tile_index_inv:0
+@endfn
+
+rbo heap_size
+
 ###############################################################
 #
 # Phase 2-end
 #
 ###############################################################
 
-add heap_size grid_height heap_size
-
 # copy the first tile's compressed coordinates to just past the last tile
 add tile_list_start -2 write_last_entry_x
 add tile_list_start  1 write_last_entry_y
 @cpy first_red_x write_last_entry_x:*0
 @cpy first_red_y write_last_entry_y:*0
+
+###############################################################
+#
+# Phase 2-end
+#
+###############################################################
 
 
 ###############################################################
@@ -269,14 +333,11 @@ add tile_list_start  1 write_last_entry_y
 ###############################################################
 
 add y_map_start grid_height grid_start
-
 mul grid_height grid_width grid_size
-add heap_size grid_size heap_size
-mul heap_size -1 heap_size_inv
 
 ###############################################################
 #
-# Phase 3.1: Zero out the grid
+# Phase 3.1: Zero out the grid.  This ends with RB pointing at &grid[grid_size]
 #
 ###############################################################
 
@@ -309,18 +370,57 @@ rbo cells_left
 
 @endfn
 
+# update heap_size and heap_size_inv
+add heap_size grid_size heap_size
+mul heap_size -1 heap_size_inv
+
 ###############################################################
 #
 # Phase 3.2: Draw the perimeter
 #
 ###############################################################
 
-# now rewind the relative base to &red_tiles[0]
+# +--------+-------+-------+-------------+-------------------+-------+--------------------+---------+---------+---------+-------+-------+----------+-------------+-----------+-------------+------------+------------+--------+------+------+---------+-------------+----------+-----------+-----------+
+# | Symbol | Coord | Delta | Description | CW Interpretation | CW[0] | CCW Interpretation | CCW [0] | CCW [1] | PrevSym | PrevC | PrevD | PrevDesc |   PrevCW    | PrevCW[0] |   PrevCCW   | PrevCCW[0] | PrevCCW[1] | NewSym | NewC | NewD | NewDesc |    NewCW    | NewCW[0] | [0]=p[0]? | [0]=n[0]? |
+# +--------+-------+-------+-------------+-------------------+-------+--------------------+---------+---------+---------+-------+-------+----------+-------------+-----------+-------------+------------+------------+--------+------+------+---------+-------------+----------+-----------+-----------+
+# | >      | dx    | +1    | EAST        | Top edge          | +1    | Bottom edge        | ?       | -1      |         |       |       |          |             |           |             |            |            |        |      |      |         |             |          |           |           |
+# | <      | dx    | -1    | WEST        | Bottom edge       | -1    | Top edge           | ?       | 1       |         |       |       |          |             |           |             |            |            |        |      |      |         |             |          |           |           |
+# | v      | dy    | -1    | SOUTH       | Right edge        | -1    | Left edge          | 1       | ?       |         |       |       |          |             |           |             |            |            |        |      |      |         |             |          |           |           |
+# | ^      | dy    | +1    | NORTH       | Left edge         | +1    | Right edge         | -1      | ?       |         |       |       |          |             |           |             |            |            |        |      |      |         |             |          |           |           |
+# | ┌      | dx    | +1    | NORTH-EAST  | outer edge        | ?     | inner edge         | nonzero | nonzero | ^       | dy    | +1    | NORTH    | Left edge   |         1 | Right edge  | -1         | ?          | >      | dx   | +1   | EAST    | Top edge    |        1 |           |           |
+# | ┌      | dy    | -1    | WEST-SOUTH  | inner edge        | ?     | outer edge         | nonzero | nonzero | <       | dx    | -1    | WEST     | Bottom edge |        -1 | Top edge    | ?          | 1          | v      | dy   | -1   | SOUTH   | Right edge  |       -1 |           |           |
+# | ┐      | dy    | +1    | EAST-SOUTH  | outer edge        | -1    | inner edge         | 1       | nonzero | >       | dx    | +1    | EAST     | Top edge    |         1 | Bottom edge | ?          | -1         | v      | dy   | -1   | SOUTH   | Right edge  |       -1 | FALSE     | TRUE      |
+# | ┐      | dx    | -1    | NORTH-WEST  | inner edge        | +1    | outer edge         | -1      | nonzero | ^       | dy    | +1    | NORTH    | Left edge   |         1 | Right edge  | -1         | ?          | <      | dx   | -1   | WEST    | Bottom edge |       -1 | TRUE      | FALSE     |
+# | └      | dy    | +1    | WEST-NORTH  | outer edge        | -1    | inner edge         | nonzero | 1       | <       | dx    | -1    | WEST     | Bottom edge |        -1 | Top edge    | ?          | 1          | ^      | dy   | +1   | NORTH   | Left edge   |        1 | TRUE      | FALSE     |
+# | └      | dx    | +1    | SOUTH-EAST  | inner edge        | +1    | outer edge         | nonzero | -1      | v       | dy    | -1    | SOUTH    | Right edge  |        -1 | Left edge   | 1          | ?          | >      | dx   | +1   | EAST    | Top edge    |        1 | FALSE     | TRUE      |
+# | ┘      | dx    | -1    | SOUTH-WEST  | outer edge        | -1    | inner edge         | 1       | 1       | v       | dy    | -1    | SOUTH    | Right edge  |        -1 | Left edge   | 1          | ?          | <      | dx   | -1   | WEST    | Bottom edge |       -1 | TRUE      | TRUE      |
+# | ┘      | dy    | +1    | EAST-NORTH  | outer edge        | +1    | outer edge         | -1      | -1      | >       | dx    | +1    | EAST     | Top edge    |         1 | Bottom edge | ?          | -1         | ^      | dy   | +1   | NORTH   | Left edge   |        1 | TRUE      | TRUE      |
+# +--------+-------+-------+-------------+-------------------+-------+--------------------+---------+---------+---------+-------+-------+----------+-------------+-----------+-------------+------------+------------+--------+------+------+---------+-------------+----------+-----------+-----------+
+
+
+# So, for the middle of a line, I could just do
+#      [0] = [1] = coord_delta * perimeter_orientation
+#
+# however, for corners, it's a bit trickier.
+#
+# when turning WEST after going NORTH or turning NORTH after going WEST,
+# the starting tile needs to be populated with prev_coord_delta * perimeter_orientation
+# for all other turns, the new coord_delta * perimeter_orientation will do the trick.
+#
+# I spent almost an entire afternoon figuring this out.  Geometry is not one of my strengths.
+
+
+# grid elements are as follows:
+# 0  = empty
+# -1 = consecutive elements to the RIGHT or BELOW that are 0 are **outside** of the perimeter
+#  1 = consecutive elements to the RIGHT or BELOW that are 0 are **inside** of the perimeter
+
+# rewind the relative base to &red_tiles[0]
 rbo heap_size_inv
 
-
 @reference draw_perimeter
-@fn naked draw_perimeter() global(red_tiles, grid_start, red_tiles_count, grid_width)
+
+@fn naked draw_perimeter() global(red_tiles, grid_start, red_tiles_count, grid_width, final_dx, final_dy, perimeter_orientation)
 
 @cpy red_tiles_count red_tiles_left
 mul &red_tiles -1 red_tiles_inv
@@ -330,12 +430,12 @@ add grid_start red_tiles_inv:0 grid_offset
 mul ~1 grid_width first_tile_offset
 add first_tile_offset:0 ~0 first_tile_offset
 add first_tile_offset grid_offset grid_offset
-@cpy grid_offset write_first_tile
 
-# mark the first tile
-@cpy 1 write_first_tile:~0
+# initialize coord_delta off of the "wraparound" line from the last tile in the input to the first tile
+add final_dx final_dy coord_delta
 
 draw_next_line:
+@cpy coord_delta prev_coord_delta
 @jeq ~0 ~2 &line_is_vertical
 # ok, line is horizontal from x=~0 to x=~2
 @cpy ~0 current_coord
@@ -346,7 +446,19 @@ lt ~2 ~0 x_negative
 mul x_negative -1 x_negative
 add x_positive:0 x_negative:0 coord_delta
 @cpy coord_delta d_address
-@jmp &draw_next_tile_start
+
+@jne coord_delta -1 &not_north_then_west
+@jne prev_coord_delta:0 1 &not_north_then_west
+# okay, this is a north-to-west turn.
+@cpy prev_coord_delta first_column_orientation
+@jmp &draw_first_tile
+
+not_north_then_west:
+@cpy coord_delta first_column_orientation
+@jmp &draw_first_tile
+
+################################
+################################
 
 line_is_vertical:
 # ok, line is vertical from y=~1 to y=~3
@@ -358,14 +470,39 @@ lt ~3 ~1 y_negative
 mul y_negative -1 y_negative
 add y_positive:0 y_negative:0 coord_delta
 mul coord_delta grid_width d_address
-@jmp &draw_next_tile_start
+
+@jne coord_delta 1 &not_west_then_north
+@jne prev_coord_delta -1 &not_west_then_north
+
+# okay, this is a west-to-north turn.
+@cpy prev_coord_delta first_column_orientation
+@jmp &draw_first_tile
+
+not_west_then_north:
+@cpy coord_delta first_column_orientation
+# @jmp &draw_first_tile
+
+#################################################
+#################################################
+
+# draw the first tile
+
+draw_first_tile:
+@cpy grid_offset first_grid_offset
+mul first_column_orientation:0 perimeter_orientation first_grid_offset:~0
+add grid_offset d_address grid_offset
+add current_coord coord_delta current_coord
+# important: this loop must never draw the last tile in the line!
+# the last tile in a line is always the first tile in the next line, which requires special handling
+@jeq current_coord target_coord &two_tile_line
 
 draw_next_tile:
+mul coord_delta perimeter_orientation grid_offset:~0
 add grid_offset d_address:0 grid_offset
 add current_coord coord_delta:0 current_coord
-draw_next_tile_start:
-@cpy 1 grid_offset:~0
 @jne current_coord:0 target_coord:0 &draw_next_tile
+
+two_tile_line:
 
 rbo 2
 # compensate for the rbo 2
@@ -373,11 +510,29 @@ add grid_offset -2 grid_offset
 add red_tiles_left -1 red_tiles_left
 jt red_tiles_left:0 &draw_next_line
 
-# skip past the very end of the array
+# reset rb to what it was upon entry
+# note that we need to do an extra 'rbo 2' because at the very end of the array is a copy of the
+# first tile, in order to greatly simplify the logic for drawing the line between the first and
+# last tile coordinates
+
 rbo 2
 rbo red_tiles_inv
 
 @endfn
+
+###############################################################
+#
+# Phase 4: Compute the answer
+#
+###############################################################
+
+# @fn naked compute_answer() global(red_tiles, red_tiles_count, grid_start, grid_width)
+
+# mul &red_tiles -1 red_tiles_neg
+# add red_tiles_neg:0 grid_start grid_rb_offset
+# add red_tiles_count -1 loop1_left
+# @cpy loop1_left loop2_left
+
 
 #############################################################################
 #
@@ -465,8 +620,15 @@ add red_tiles_y item1 read_y1
 add red_tiles_y item2 read_y2
 @cpy read_y1:*0 item1_y
 @cpy read_y2:*0 item2_y
-# if item2.y < item1.y then return 
-lt item2_y item1_y return0
+# if item1.y < item2.y then return 1
+#
+# NOTE: doing it this way causes the Y-coordinates to be **inverted** and thus match the standard
+# Cartesian plane: lines that go "down" will have DY=-1 and lines that go "up" will have DY=1
+#
+# I could also get the same effect by multiplying incoming coordinates by -1, but this is easier to
+# debug.
+#
+lt item1_y item2_y return0
 # NOTE: after this point, item1 has been *trashed*
 # TODO: figure out a way to have the compiler help me with that shit. i've been bitten way too
 # many times.
@@ -1195,6 +1357,10 @@ hlt
 @raw grid_size:   0 
 # grid_start = address of 2D grid
 @raw grid_start: 0
+
+@raw perimeter_orientation: 0
+
+@raw final_dx: 0 final_dy: 0
 
 red_tiles:
 @raw first_red_x: 0 first_red_y: 0

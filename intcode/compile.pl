@@ -119,7 +119,10 @@ sub compile {
       my $retaddr_stack = 1;
       # naked functions have no prologue or epilogue
       my $no_stack = ($retnum eq 'naked');
-      if ($no_stack) { $retnum = 0; $retaddr_stack = 0; }
+      if ($no_stack) {
+          $retnum = 0;
+          $retaddr_stack = 0;
+      }
 
       die "duplicate function $fnname" if $functions{$fnname};
       die "function label $fnname is already used elsewhere" if exists $label_addr{$fnname} || exists $label_mode{$fnname};
@@ -210,9 +213,9 @@ sub compile {
         my ($line) = @_;
         die "invalid \@__declare_label syntax: $line" unless $line =~ /^\@__declare_label (\w+)$/;
         #print STDERR "declaring label $1\n";
-		die "duplicate label $1" if exists $label_addr{$1};
+        die "duplicate label $1" if exists $label_addr{$1};
         $label_addr{$1} = scalar @compiled;
-		$label_defline{$1} = $.;
+        $label_defline{$1} = $.;
         return ();
     },
     callt => sub {
@@ -356,9 +359,9 @@ sub compile {
           die "wrong number of args for instruction $in_vals[0] of line: $line" unless @in_vals == $instr{$in_vals[0]}{args}+1;
           die "wrong length lval definition for instruction $in_vals[0]" unless $instr{$in_vals[0]}{args} == @{$instr{$in_vals[0]}{lvals}};
           $out_vals[$i] = $instr{$in_vals[0]}{opcode};
-		  
-		  $warn->("comparing a value with itself in line: $line")
-			if ($in_vals[0] =~ /^(?:eq|lt)$/ && $in_vals[1] eq $in_vals[2]);
+          
+          $warn->("comparing a value with itself in line: $line")
+            if ($in_vals[0] =~ /^(?:eq|lt)$/ && $in_vals[1] eq $in_vals[2]);
 
           $warn->("jump to variable address in line: $line")
           if $in_vals[0] =~ /^j[tf]$/ && !jump_target_looks_sane($in_vals[2]);

@@ -130,7 +130,7 @@ void Main()
 			cpu.Memory[rb + 2], cpu.Memory[rb + 3]
 		);
 	});
-	cpu.AddBreakpoint("fn_draw_perimeter__draw_next_tile_start", c =>
+	if (false) 	cpu.AddBreakpoint("fn_draw_perimeter__draw_next_tile_start", c =>
 	{
 		using var bpout = new BreakpointOutput();
 		var grid_start = (int) ReadVariable(c, "grid_start");
@@ -177,6 +177,8 @@ void Main()
 			"grid_height",
 			"grid_size",
 			"grid_start",
+			"top_tile_index",
+			"perimeter_orientation",
 		})
 			ReadVariable(cpu, var_name).Dump(var_name);
 		var red_tiles_address = _name2Addr["red_tiles"];
@@ -200,7 +202,9 @@ void Main()
 		{
 			for (int c = 0; c < grid_width; c++, addr++)
 			{
-				if (cpu.Memory[addr] == 0) sb.Append('.');
+				var val = cpu.Memory[addr];
+				if (val == 0) sb.Append('.');
+				else if (val < 0) sb.Append('E');
 				else sb.Append('#');
 			}
 			sb.AppendLine();
