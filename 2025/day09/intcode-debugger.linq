@@ -70,6 +70,19 @@ void Main()
 			sb.Append(" (PART2 ANSWER)");
 		bpout.WriteLine(sb.ToString());
 	});
+	foreach (var prefix in new string[] { "top_line_", "bottom_line_", "left_line_", "right_line_" })
+	{
+		cpu.AddBreakpoint("fn_compute_answer__" + prefix + "line_loop",
+			c =>
+			{
+				using var bpout = new BreakpointOutput();
+				var grid_start = (int)ReadVariable(c, "grid_start");
+				var grid_width = (int)ReadVariable(c, "grid_width");
+				var read_ptr = cpu.Toc + (int)ReadVariable(c, "fn_compute_answer__" + prefix + "grid_read_ptr");
+				var grid_offset = read_ptr - grid_start;
+				bpout.WriteLine(prefix + ": grid_read_ptr will access x={1}, y={0}", grid_offset / grid_width, grid_offset % grid_width);				
+			});
+	}
 
 	StreamWriter stdout_file;
 	if (WRITE_OUTPUT_LOG)

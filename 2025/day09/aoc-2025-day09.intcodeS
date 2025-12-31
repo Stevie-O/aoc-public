@@ -598,6 +598,16 @@ mul loop1_left -2 j_end_rbo_adj
 
 next_j:
 
+# if x1==x2 or x1==y2, skip
+# there are two reasons for this:
+# 1. they cannot be the best possible answer.
+# 2. worse, the part2 line scanning algorithm enters an infinite loop when this happens.
+# I originally eschewed this check, which adds 4 instructions per pair, because I did not
+# expect the savings to be worth it -- but if we have to check *anyway*, for the correctness
+# of the algorithm, we may as well do it here.
+@jeq ~0 i_x &goto_next_j
+@jeq ~1 i_y &goto_next_j
+
 # choose (x1, y1) and (x2, y2) such that x1 <= x2 and y1 <= y2
 @jlt ~0 i_x:0 &j_x_lesser
 # j_x >= i_x
@@ -743,7 +753,7 @@ jf empty_is_green &goto_next_j
 PATTERN__line_cont:
 
 add current_y 1 current_y
-add PATTERN__grid_read_ptr 1 PATTERN__grid_read_ptr
+add PATTERN__grid_read_ptr grid_width PATTERN__grid_read_ptr
 @jne current_y:0 y2 &PATTERN__line_loop
 
 
@@ -771,7 +781,7 @@ jf empty_is_green &goto_next_j
 PATTERN__line_cont:
 
 add current_y 1 current_y
-add PATTERN__grid_read_ptr 1 PATTERN__grid_read_ptr
+add PATTERN__grid_read_ptr grid_width PATTERN__grid_read_ptr
 @jne current_y y2 &PATTERN__line_loop
 
 # end of checking
@@ -799,7 +809,8 @@ jt loop2_left:0 &next_j
 # rewind the relative base
 
 rbo j_end_rbo_adj:0
-add grid_rb_offset j_end_rbo_adj grid_rb_offset
+mul j_end_rbo_adj -1 j_end_grid_adj
+add grid_rb_offset j_end_grid_adj:0 grid_rb_offset
 
 add loop1_left -1 loop1_left
 jt loop1_left:0 &next_i
