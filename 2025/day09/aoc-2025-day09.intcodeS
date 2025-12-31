@@ -598,16 +598,6 @@ mul loop1_left -2 j_end_rbo_adj
 
 next_j:
 
-# if x1==x2 or x1==y2, skip
-# there are two reasons for this:
-# 1. they cannot be the best possible answer.
-# 2. worse, the part2 line scanning algorithm enters an infinite loop when this happens.
-# I originally eschewed this check, which adds 4 instructions per pair, because I did not
-# expect the savings to be worth it -- but if we have to check *anyway*, for the correctness
-# of the algorithm, we may as well do it here.
-@jeq ~0 i_x &goto_next_j
-@jeq ~1 i_y &goto_next_j
-
 # choose (x1, y1) and (x2, y2) such that x1 <= x2 and y1 <= y2
 @jlt ~0 i_x:0 &j_x_lesser
 # j_x >= i_x
@@ -684,13 +674,14 @@ add y1_offset:0 x1 PATTERN__start_offset
 
 @cpy 0 empty_is_green
 @cpy x1 current_x
+add x2 1 final_x
 add PATTERN__start_offset:0 grid_rb_offset:0 PATTERN__grid_read_ptr
 
 PATTERN__line_loop:
 @cpy PATTERN__grid_read_ptr:~0 grid_value
 
 jf grid_value:0 &PATTERN__is_empty
-eq grid_value 1 empty_is_green
+lt 0 grid_value empty_is_green
 @jmp &PATTERN__line_cont
 
 PATTERN__is_empty:
@@ -700,34 +691,7 @@ PATTERN__line_cont:
 
 add current_x 1 current_x
 add PATTERN__grid_read_ptr 1 PATTERN__grid_read_ptr
-@jne current_x:0 x2 &PATTERN__line_loop
-
-###########################################################
-# check BOTTOM line: (x1, y2) to (x2, y2)
-
-@setpattern bottom_line_
-
-add y2_offset:0 x1 PATTERN__start_offset
-
-@cpy 0 empty_is_green
-@cpy x1 current_x
-add PATTERN__start_offset:0 grid_rb_offset PATTERN__grid_read_ptr
-
-PATTERN__line_loop:
-@cpy PATTERN__grid_read_ptr:~0 grid_value
-
-jf grid_value &PATTERN__is_empty
-eq grid_value 1 empty_is_green
-@jmp &PATTERN__line_cont
-
-PATTERN__is_empty:
-# if empty_is_green is 0, this is not a valid rectangle for part 2
-jf empty_is_green &goto_next_j
-PATTERN__line_cont:
-
-add current_x 1 current_x
-add PATTERN__grid_read_ptr 1 PATTERN__grid_read_ptr
-@jne current_x x2 &PATTERN__line_loop
+@jne current_x:0 final_x:0 &PATTERN__line_loop
 
 ###########################################################
 # check LEFT line: (x1, y1) to (x1, y2)
@@ -738,13 +702,14 @@ add y1_offset x1 PATTERN__start_offset
 
 @cpy 0 empty_is_green
 @cpy y1 current_y
+add y2 1 final_y
 add PATTERN__start_offset:0 grid_rb_offset PATTERN__grid_read_ptr
 
 PATTERN__line_loop:
 @cpy PATTERN__grid_read_ptr:~0 grid_value
 
 jf grid_value &PATTERN__is_empty
-eq grid_value 1 empty_is_green
+lt 0 grid_value empty_is_green
 @jmp &PATTERN__line_cont
 
 PATTERN__is_empty:
@@ -754,8 +719,37 @@ PATTERN__line_cont:
 
 add current_y 1 current_y
 add PATTERN__grid_read_ptr grid_width PATTERN__grid_read_ptr
-@jne current_y:0 y2 &PATTERN__line_loop
+@jne current_y:0 final_y:0 &PATTERN__line_loop
 
+# at this point, we have verified that both (x2, y1) and (x1, y2) are are inside the polygon
+# therefore, we can (must, actually) initialize empty_is_green to 1 for the BOTTOM and RIGHT lines.
+
+###########################################################
+# check BOTTOM line: (x1, y2) to (x2, y2)
+
+@setpattern bottom_line_
+
+add y2_offset:0 x1 PATTERN__start_offset
+
+@cpy 1 empty_is_green
+@cpy x1 current_x
+add PATTERN__start_offset:0 grid_rb_offset PATTERN__grid_read_ptr
+
+PATTERN__line_loop:
+@cpy PATTERN__grid_read_ptr:~0 grid_value
+
+jf grid_value &PATTERN__is_empty
+lt 0 grid_value empty_is_green
+@jmp &PATTERN__line_cont
+
+PATTERN__is_empty:
+# if empty_is_green is 0, this is not a valid rectangle for part 2
+jf empty_is_green &goto_next_j
+PATTERN__line_cont:
+
+add current_x 1 current_x
+add PATTERN__grid_read_ptr 1 PATTERN__grid_read_ptr
+@jne current_x final_x &PATTERN__line_loop
 
 ###########################################################
 # check RIGHT line: (x2, y1) to (x2, y2)
@@ -764,7 +758,7 @@ add PATTERN__grid_read_ptr grid_width PATTERN__grid_read_ptr
 
 add y1_offset x2 PATTERN__start_offset
 
-@cpy 0 empty_is_green
+@cpy 1 empty_is_green
 @cpy y1 current_y
 add PATTERN__start_offset:0 grid_rb_offset PATTERN__grid_read_ptr
 
@@ -772,7 +766,7 @@ PATTERN__line_loop:
 @cpy PATTERN__grid_read_ptr:~0 grid_value
 
 jf grid_value &PATTERN__is_empty
-eq grid_value 1 empty_is_green
+lt 0 grid_value empty_is_green
 @jmp &PATTERN__line_cont
 
 PATTERN__is_empty:
@@ -782,7 +776,7 @@ PATTERN__line_cont:
 
 add current_y 1 current_y
 add PATTERN__grid_read_ptr grid_width PATTERN__grid_read_ptr
-@jne current_y y2 &PATTERN__line_loop
+@jne current_y final_y &PATTERN__line_loop
 
 # end of checking
 @clearpattern

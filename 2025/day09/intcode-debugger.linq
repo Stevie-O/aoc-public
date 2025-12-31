@@ -74,13 +74,17 @@ void Main()
 	{
 		cpu.AddBreakpoint("fn_compute_answer__" + prefix + "line_loop",
 			c =>
-			{
+			{ 
 				using var bpout = new BreakpointOutput();
 				var grid_start = (int)ReadVariable(c, "grid_start");
 				var grid_width = (int)ReadVariable(c, "grid_width");
 				var read_ptr = cpu.Toc + (int)ReadVariable(c, "fn_compute_answer__" + prefix + "grid_read_ptr");
 				var grid_offset = read_ptr - grid_start;
-				bpout.WriteLine(prefix + ": grid_read_ptr will access x={1}, y={0}", grid_offset / grid_width, grid_offset % grid_width);				
+				var sb = new StringBuilder();
+				sb.AppendFormat(prefix + ": grid_read_ptr will access x={1}, y={0}", grid_offset / grid_width, grid_offset % grid_width);
+				var value = cpu.Memory[read_ptr];
+				sb.AppendFormat(" (value = {0}, empty_is_green = {1})", value, ReadVariable(c, "fn_compute_answer__empty_is_green"));
+				bpout.WriteLine(sb.ToString());
 			});
 	}
 
