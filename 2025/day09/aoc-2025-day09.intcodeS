@@ -561,10 +561,12 @@ jt red_tiles_left:0 &draw_next_line
 # first tile, in order to greatly simplify the logic for drawing the line between the first and
 # last tile coordinates
 
-rbo 2
-rbo red_tiles_inv
+mul red_tiles_count -2 final_rbo
+rbo final_rbo:0
 
 @endfn
+
+# at this point, the relative base is pointed at &red_tiles
 
 ###############################################################
 #
@@ -572,13 +574,247 @@ rbo red_tiles_inv
 #
 ###############################################################
 
-# @fn naked compute_answer() global(red_tiles, red_tiles_count, grid_start, grid_width)
+@reference compute_answer
 
-# mul &red_tiles -1 red_tiles_neg
-# add red_tiles_neg:0 grid_start grid_rb_offset
-# add red_tiles_count -1 loop1_left
-# @cpy loop1_left loop2_left
+@fn naked compute_answer() global(red_tiles, red_tiles_count, grid_start, grid_width, part1_answer, part2_answer, x_map_start, y_map_start)
 
+mul &red_tiles -1 red_tiles_neg
+add red_tiles_neg:0 grid_start grid_rb_offset
+
+# i ranges from 0 to red_tiles_count - 2, which is (red_tiles_count - 1) values
+add red_tiles_count -1 loop1_left
+
+next_i:
+@cpy ~0 i_x
+@cpy ~1 i_y
+#mul i_x:0 -1 neg_i_x
+#mul i_y:0 -1 neg_i_y
+
+rbo 2
+add grid_rb_offset -2 grid_rb_offset
+# j ranges from (i+1) .. (red_tiles_count - 1)
+@cpy loop1_left loop2_left
+mul loop1_left -2 j_end_rbo_adj
+
+next_j:
+
+# choose (x1, y1) and (x2, y2) such that x1 <= x2 and y1 <= y2
+@jlt ~0 i_x:0 &j_x_lesser
+# j_x >= i_x
+@cpy i_x x1
+@cpy ~0 x2
+@jmp &handle_j_y
+j_x_lesser:
+# j_x < i_x
+@cpy ~0 x1
+@cpy i_x x2
+
+handle_j_y:
+@jlt ~1 i_y:0 &j_y_lesser
+# j_y >= i_y
+@cpy i_y y1
+@cpy ~1 y2
+@jmp &done_set_x1y1x2y2
+j_y_lesser:
+# j_y < i_y
+@cpy ~1 y1
+@cpy i_y y2
+
+done_set_x1y1x2y2:
+
+# decompress the coordinates
+
+add x1:0 x_map_start full_x1_read_ptr
+add x2:0 x_map_start full_x2_read_ptr
+add y1:0 y_map_start full_y1_read_ptr
+add y2:0 y_map_start full_y2_read_ptr
+
+@cpy full_x1_read_ptr:*0 full_x1
+@cpy full_x2_read_ptr:*0 full_x2
+@cpy full_y1_read_ptr:*0 full_y1
+@cpy full_y2_read_ptr:*0 full_y2
+
+mul full_y1:0 -1 full_y1_inv
+mul full_x1:0 -1 full_x1_inv
+
+add full_x1_inv:0 full_x2:0 full_dx
+add full_y1_inv:0 full_y2:0 full_dy
+
+# (x1, y1) and (x2, y2) are inclusive, so we have to add 1
+add full_dx:0 1 full_dx
+add full_dy:0 1 full_dy
+
+mul full_dx full_dy rect_area
+
+# because every valid part 2 rectangle is also a valid part 1 rectangle, part2_answer <= part1_answer
+# if the new pair's rectangle is smaller area than the part2_answer, there's no point in checking
+@jle rect_area:0 part2_answer &goto_next_j
+@jle rect_area part1_answer &not_new_part1_answer
+@cpy rect_area part1_answer
+not_new_part1_answer:
+
+# okay, we now need to check if all of the tiles that make up the perimeter of (x1, y1)-(x2, y2)
+# are inside the polygon
+
+###################################################################################
+#
+#                            PART 2 VALIDITY CHECK
+#
+###################################################################################
+
+mul y1 grid_width y1_offset
+mul y2 grid_width y2_offset
+
+###########################################################
+# check TOP line: (x1, y1) to (x2, y1)
+
+@setpattern top_line_
+
+add y1_offset:0 x1 PATTERN__start_offset
+
+@cpy 0 empty_is_green
+@cpy x1 current_x
+add PATTERN__start_offset:0 grid_rb_offset:0 PATTERN__grid_read_ptr
+
+PATTERN__line_loop:
+@cpy PATTERN__grid_read_ptr:~0 grid_value
+
+jf grid_value:0 &PATTERN__is_empty
+eq grid_value 1 empty_is_green
+@jmp &PATTERN__line_cont
+
+PATTERN__is_empty:
+# if empty_is_green is 0, this is not a valid rectangle for part 2
+jf empty_is_green:0 &goto_next_j
+PATTERN__line_cont:
+
+add current_x 1 current_x
+add PATTERN__grid_read_ptr 1 PATTERN__grid_read_ptr
+@jne current_x:0 x2 &PATTERN__line_loop
+
+###########################################################
+# check BOTTOM line: (x1, y2) to (x2, y2)
+
+@setpattern bottom_line_
+
+add y2_offset:0 x1 PATTERN__start_offset
+
+@cpy 0 empty_is_green
+@cpy x1 current_x
+add PATTERN__start_offset:0 grid_rb_offset PATTERN__grid_read_ptr
+
+PATTERN__line_loop:
+@cpy PATTERN__grid_read_ptr:~0 grid_value
+
+jf grid_value &PATTERN__is_empty
+eq grid_value 1 empty_is_green
+@jmp &PATTERN__line_cont
+
+PATTERN__is_empty:
+# if empty_is_green is 0, this is not a valid rectangle for part 2
+jf empty_is_green &goto_next_j
+PATTERN__line_cont:
+
+add current_x 1 current_x
+add PATTERN__grid_read_ptr 1 PATTERN__grid_read_ptr
+@jne current_x x2 &PATTERN__line_loop
+
+###########################################################
+# check LEFT line: (x1, y1) to (x1, y2)
+
+@setpattern left_line_
+
+add y1_offset x1 PATTERN__start_offset
+
+@cpy 0 empty_is_green
+@cpy y1 current_y
+add PATTERN__start_offset:0 grid_rb_offset PATTERN__grid_read_ptr
+
+PATTERN__line_loop:
+@cpy PATTERN__grid_read_ptr:~0 grid_value
+
+jf grid_value &PATTERN__is_empty
+eq grid_value 1 empty_is_green
+@jmp &PATTERN__line_cont
+
+PATTERN__is_empty:
+# if empty_is_green is 0, this is not a valid rectangle for part 2
+jf empty_is_green &goto_next_j
+PATTERN__line_cont:
+
+add current_y 1 current_y
+add PATTERN__grid_read_ptr 1 PATTERN__grid_read_ptr
+@jne current_y:0 y2 &PATTERN__line_loop
+
+
+###########################################################
+# check RIGHT line: (x2, y1) to (x2, y2)
+
+@setpattern right_line_
+
+add y1_offset x2 PATTERN__start_offset
+
+@cpy 0 empty_is_green
+@cpy y1 current_y
+add PATTERN__start_offset:0 grid_rb_offset PATTERN__grid_read_ptr
+
+PATTERN__line_loop:
+@cpy PATTERN__grid_read_ptr:~0 grid_value
+
+jf grid_value &PATTERN__is_empty
+eq grid_value 1 empty_is_green
+@jmp &PATTERN__line_cont
+
+PATTERN__is_empty:
+# if empty_is_green is 0, this is not a valid rectangle for part 2
+jf empty_is_green &goto_next_j
+PATTERN__line_cont:
+
+add current_y 1 current_y
+add PATTERN__grid_read_ptr 1 PATTERN__grid_read_ptr
+@jne current_y y2 &PATTERN__line_loop
+
+# end of checking
+@clearpattern
+
+# if we reach this point, we have a new best answer for part 2
+@cpy rect_area part2_answer
+
+###########################################################
+#
+# done checking the current pair of coordinates. go to the next (x2, y2).
+
+goto_next_j:
+
+# advance our pointer by 2
+rbo 2
+add grid_rb_offset -2 grid_rb_offset
+
+add loop2_left -1 loop2_left
+jt loop2_left:0 &next_j
+
+# that's the last j for this i, then
+# go to the next i
+
+# rewind the relative base
+# note that we want to rewind 2 less, to go to the next i
+add j_end_rbo_adj -2 j_end_rbo_adj
+
+rbo j_end_rbo_adj:0
+add grid_rb_offset j_end_rbo_adj grid_rb_offset
+
+add loop1_left -1 loop1_left
+jt loop1_left:0 &next_i
+
+# that's the end!
+@endfn
+
+rbo heap_size
+# move the rb way out to the end of the heap
+# this actually goes out *past* the end of the heap, but that doesn't matter,
+# because we won't be using it again.
+# (we could technically skip doing even that, but I don't want to trash my heap
+#  before exiting)
 
 #############################################################################
 #
