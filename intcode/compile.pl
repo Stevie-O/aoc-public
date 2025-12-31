@@ -63,6 +63,7 @@ sub compile {
   my %label_uses;
   my %label_linerefs;
   my $label_prefix = "";
+  my $current_pattern = "";
   my %label_prefix_except;
  
   my %functions;
@@ -209,6 +210,18 @@ sub compile {
       #print STDERR join(', ', map qq['$_'], @epilogue), "\n";
       return @epilogue;
     },
+    setpattern => sub {
+        my ($line) = @_;
+        die "invalid \@setpattern syntax: $line" unless $line =~ /^\@setpattern\s+(\w+)$/;
+        $current_pattern = $1;
+        return ();
+    },
+    clearpattern => sub {
+        my ($line) = @_;
+        die "invalid \@clearpattern syntax: $line" unless $line =~ /^\@clearpattern\s*$/;
+        $current_pattern = "";
+        return ();
+    },
     __declare_label => sub {
         my ($line) = @_;
         die "invalid \@__declare_label syntax: $line" unless $line =~ /^\@__declare_label (\w+)$/;
@@ -295,6 +308,9 @@ sub compile {
     }
     next unless $line =~ /\S/;
     $line =~ s/^\s+|\s+$//g;
+    if ($line =~ s/\bPATTERN__/$current_pattern/g) {
+           die "PATTERN__ used but no pattern is defined" unless length $current_pattern;
+    }
     next if $line =~ /^\s*(?:\#.*?)?$/;
 
     if ($line =~ /^\@(\w+)/ && $macro{$1}) {
