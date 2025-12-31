@@ -1,5 +1,5 @@
 jf 0 &start
-@raw raw_output: 0	 use_dle: 1
+@raw raw_output: 0	 use_dle: 1  disable_compression:1
 start: rbo &red_tiles
 # weird compiler quirk: it accepts "rbo heap_size:1" but not "rbo heap_size: 1". odd.
 rbo heap_size:0
@@ -39,6 +39,11 @@ rbo heap_size:0
 # [4]: raw_output: Default 0. 0 = ASCII output for integers. 1 = Output all integers as raw integer values.
 # [5]: use_dle:    Default 1. 1 = Prefix all raw integer outputs with a a DLE (0x10) character.
 #                             This flag will normally have no effect unless RawOutput is enabled.
+# [6]: disable_compression: Default 0. Disable X- and Y-compression.
+#         Disabling compression changes the runtime complexity from O(n^2) to O(abn^2),
+#         where 'n' is the number of red (input) tiles, 'a' is the width of the tile grid,
+#         and 'b' is the height of the tile grid
+
 
 #############################################################################
 #
@@ -84,7 +89,35 @@ add red_tiles_count 1 red_tiles_count
 # one way requires 2 instructions per tile. I have about 500 tiles in my input, so that's about 1000 instructions.
 # the other costs about 23 instructions per bit.  That's about 10, so that's 230 instructions.
 # lo and behold: dividing the total count by 2 is still cheaper
+jf disable_compression &read_next_tile
+@jle red_tiles_count 1 &init_min_max_xy
+
+#update_min_max_xy:
+
+# if compression is disabled, we need to do some more work
+@jge tile_x min_input_x &not_new_min_input_x
+@cpy tile_x min_input_x
+@jmp &check_min_max_y
+not_new_min_input_x:
+@jle tile_x max_input_x &check_min_max_y
+@cpy tile_x max_input_x
+
+check_min_max_y:
+@jge tile_y min_input_y &not_new_min_input_y
+@cpy tile_y min_input_y
 @jmp &read_next_tile
+not_new_min_input_y:
+@jle tile_y max_input_y &read_next_tile
+@cpy tile_y max_input_y
+@jmp &read_next_tile
+
+init_min_max_xy:
+@cpy tile_x min_input_x
+@cpy tile_x max_input_x
+@cpy tile_y min_input_y
+@cpy tile_y max_input_y
+@jmp &read_next_tile
+
 
 ################################################################################################
 
@@ -148,6 +181,8 @@ add tile_list_count 1 tile_list_count
 @__declare_label debugbp__build_tile_list_done
 
 add tile_list_start tile_list_size x_map_start
+
+jt disable_compression &null_compression
 
 ###############################################################
 #
@@ -232,7 +267,7 @@ add heap_size grid_width heap_size
 @cpy read_top_y_tile_ptr:*0 top_tile_index
 
 @reference compress_y_loop
-@fn naked compress_y_loop() global(red_tiles, tile_list_start, tile_list_size, min_heap_y_coordinate, heap1w_pop, grid_height)
+@fn naked compress_y_loop() global(red_tiles, tile_list_start, tile_list_size, min_heap_y_coordinate, heap1w_pop, grid_height, disable_compression)
 
 @cpy tile_list_size tile_list_left
 add &red_tiles 1 red_tiles_y
@@ -266,8 +301,8 @@ add tile_list_left 1 ~2
 @endfn
 
 @__declare_label debugbp__done_y_compression
-
 add heap_size grid_height heap_size
+compression_done:
 mul heap_size -1 heap_size_inv
 
 ###############################################################
@@ -586,6 +621,83 @@ rbo 2
 @cpy first_red_y ~7
 @jmp &printf_error_and_die
 
+
+################################
+# Null compression: compress_x(x) = x - min_input_x, compress_y(y) = max_input_y - min_input_y - y
+
+@fn naked null_compression() global(red_tiles, red_tiles_count, x_map_start, first_red_x, first_red_y, grid_width, grid_height, max_input_x, max_input_y, min_input_x, min_input_y, tile_list_size, top_tile_index)
+
+# this function needs to perform all the same work the compression code would do:
+#
+# - make sure that Y has been inverted for all tile coordinates
+# - populate the dummy tile at the end of the red_tiles list
+# - initialize top_tile_index
+# - initialize grid_width and grid_height
+# - populate the x_map and y_map tables
+# - initialize y_map_start and grid_start
+
+# rb is currently at x_map_start
+# adjust it backwards to &red_tiles[0] 
+mul x_map_start -1 rbo_adjust
+add rbo_adjust &red_tiles rbo_adjust
+rbo rbo_adjust:0
+
+@cpy 0 current_tile_index
+#@cpy 0 top_tile_index_was_set
+
+@cpy red_tiles_count red_tiles_left
+
+mul min_input_x -1 x_offset
+mul min_input_y -1 y_offset
+add x_offset:0 max_input_x grid_width
+add y_offset:0 max_input_y grid_height
+add grid_width 1 grid_width
+add grid_height 1 grid_height
+add y_offset max_input_y y_offset
+
+
+adjust_next_tile:
+jt top_tile_index_was_set:0 &dont_set_top_tile_index
+@jne ~1 min_input_y &dont_set_top_tile_index
+@cpy 1 top_tile_index_was_set
+@cpy current_tile_index:0 top_tile_index
+dont_set_top_tile_index:
+add current_tile_index 2 current_tile_index
+
+add ~0 x_offset ~0
+mul ~1 -1 y_inv
+add y_inv:0 y_offset ~1
+rbo 2
+add red_tiles_left -1 red_tiles_left
+jt red_tiles_left:0 &adjust_next_tile
+
+@cpy first_red_x ~0
+@cpy first_red_y ~1
+rbo 2
+rbo tile_list_size
+
+@cpy grid_width width_left
+write_next_x_coordinate:
+@cpy x_counter:0 ~0
+rbo 1
+add x_counter 1 x_counter
+add width_left -1 width_left
+jt width_left:0 &write_next_x_coordinate
+
+@cpy grid_height height_left
+write_next_y_coordinate:
+@cpy y_counter:0 ~0
+rbo 1
+add y_counter 1 y_counter
+add height_left -1 height_left
+jt height_left:0 &write_next_y_coordinate
+
+@endfn
+add x_map_start grid_width y_map_start
+add y_map_start grid_height grid_start
+add heap_size grid_width heap_size
+add heap_size grid_height heap_size
+@jmp &compression_done
 
 
 # min_heap_x_coordinate(item1, item2, unused, unused)
@@ -1361,6 +1473,7 @@ hlt
 @raw perimeter_orientation: 0
 
 @raw final_dx: 0 final_dy: 0
+@raw min_input_x: 0 max_input_x: 0 min_input_y: 0 max_input_y: 0
 
 red_tiles:
 @raw first_red_x: 0 first_red_y: 0

@@ -28,6 +28,7 @@ static string WorkDir;
 void Main()
 {
 	Util.NewProcess = true;
+	ForceHalt = false;
 	var dir = WorkDir = Path.Combine(Path.GetDirectoryName(Util.CurrentQueryPath),
 		"."
 	);
@@ -37,6 +38,15 @@ void Main()
 	var cpu = ParseInput(new StringReader(
 			code_file
 		));
+
+	cpu.AddBreakpoint("assertion_failed", c =>
+	{
+		using var bpout = new BreakpointOutput();
+		bpout.WriteLine();
+		bpout.WriteLine("ASSERTION FAILURE ON LINE {0}", ReadVariable(c, "assertion_failed_line"));
+		bpout.WriteLine();
+		ForceHalt = true;
+	});
 
 	StreamWriter stdout_file;
 	if (WRITE_OUTPUT_LOG)
@@ -166,7 +176,7 @@ void Main()
 		RunUntilHalt(cpu, instruction_limit: INSTRUCTION_LIMIT);
 
 
-		foreach (var var_name in new string[] {
+		(new string[] {
 			"red_tiles_size",
 			"red_tiles_count",
 			"tile_list_start",
@@ -179,8 +189,14 @@ void Main()
 			"grid_start",
 			"top_tile_index",
 			"perimeter_orientation",
-		})
-			ReadVariable(cpu, var_name).Dump(var_name);
+			//"min_input_x_inv",
+			//"min_input_y_inv",
+			"min_input_x",
+			"min_input_y",
+			"max_input_x",
+			"max_input_y",
+		}).Select(var_name => new KeyValuePair<string, memval_t>(var_name, ReadVariable(cpu, var_name)))
+			.Dump("Key globals");
 		var red_tiles_address = _name2Addr["red_tiles"];
 		var red_tiles_size = (int)ReadVariable(cpu, "red_tiles_size");
 		cpu.Memory.Skip(red_tiles_address).Take(red_tiles_size).Chunk(2).Select((c, i) => $"[{red_tiles_address + 2 * i}] ({c[0]}, {c[1]})").Dump("tile coordinates");
@@ -218,6 +234,8 @@ void Main()
 		ExecutionLogFile?.Dispose();
 	}
 }
+
+static bool ForceHalt = false;
 
 void DebugTileCoordinates(string breakpoint_name, IntcodeCpu cpu)
 {
@@ -1195,6 +1213,11 @@ class IntcodeCpu
 	public IntcodeCpu ExecuteInstruction()
 	{
 		TriggerBreakpoints();
+		if (ForceHalt)
+		{
+			Console.WriteLine("CPU forcibly halted");
+			return this.HaltOp(default, default);
+		}
 
 		if (Pc < 0 || Pc >= Memory.Length) throw new Exception("PC out of bounds: " + Pc);
 		var ins_arg0 = Memory[Pc];
