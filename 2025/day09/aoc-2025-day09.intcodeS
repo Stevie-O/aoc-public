@@ -797,8 +797,6 @@ jt loop2_left:0 &next_j
 # go to the next i
 
 # rewind the relative base
-# note that we want to rewind 2 less, to go to the next i
-add j_end_rbo_adj -2 j_end_rbo_adj
 
 rbo j_end_rbo_adj:0
 add grid_rb_offset j_end_rbo_adj grid_rb_offset

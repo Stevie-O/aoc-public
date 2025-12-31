@@ -48,6 +48,29 @@ void Main()
 		ForceHalt = true;
 	});
 
+	cpu.AddBreakpoint("fn_compute_answer__next_j", c =>
+	{
+		using var bpout = new BreakpointOutput();
+		bpout.WriteLine("Checking: ({0}, {1}) - ({2}, {3})",
+					ReadVariable(c, "fn_compute_answer__i_x"),
+					ReadVariable(c, "fn_compute_answer__i_y"),
+					c.Memory[c.Toc + 0],
+					c.Memory[c.Toc + 1]
+					);
+	});
+	cpu.AddBreakpoint("fn_compute_answer__goto_next_j", c =>
+	{
+		using var bpout = new BreakpointOutput();
+		var sb = new StringBuilder();
+		var rect_area = ReadVariable(c, "fn_compute_answer__rect_area");
+		sb.AppendFormat("Rectangle area was {0}", rect_area);
+		if (rect_area == ReadVariable(c, "part1_answer"))
+			sb.Append(" (PART1 ANSWER)");
+		if (rect_area == ReadVariable(c, "part2_answer"))
+			sb.Append(" (PART2 ANSWER)");
+		bpout.WriteLine(sb.ToString());
+	});
+
 	StreamWriter stdout_file;
 	if (WRITE_OUTPUT_LOG)
 	{
