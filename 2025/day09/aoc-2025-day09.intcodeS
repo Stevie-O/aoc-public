@@ -323,6 +323,7 @@ rbo heap_size_inv
 
 @reference find_perimeter_orientation
 @fn naked find_perimeter_orientation() global(top_tile_index, perimeter_orientation, assertion_failed, assertion_failed_line)
+
 mul top_tile_index -1 top_tile_index_inv
 rbo top_tile_index
 # we are now pointed at the FIRST tile with the SMALLEST (in input) Y-coordinate
@@ -653,7 +654,13 @@ add x_offset:0 max_input_x grid_width
 add y_offset:0 max_input_y grid_height
 add grid_width 1 grid_width
 add grid_height 1 grid_height
-add y_offset max_input_y y_offset
+# I need to compute (max_input_y - (Y - min_input_y))
+# that's ((max_input_y + min_input_y) - Y)
+#add min_input_y max_input_y y_offset
+# ^^^ the above is WRONG
+# I'm not sure why, but it's actually simply (max_input_y - Y) to map the Y coordinate into the
+# correct range.
+@cpy max_input_y y_offset
 
 
 adjust_next_tile:
