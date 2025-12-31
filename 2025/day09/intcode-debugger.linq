@@ -7,14 +7,14 @@
   <Namespace>System.Globalization</Namespace>
 </Query>
 
-const bool WRITE_EXECLOG = true;
+const bool WRITE_EXECLOG = false;
 const bool TRACE_INPUT = true;
 const bool WRITE_OUTPUT_LOG = false;
 
 const string OUTPUT_LOG_NAME = "output.txt";
 const string INPUT_FILE_PATH =
-	"example.txt"
-	//"../../puzzle_inputs/2025-09.txt"
+	//"example.txt"
+	"../../puzzle_inputs/2025-09.txt"
 	;
 const int INSTRUCTION_LIMIT =
 	//1_000_000_000
@@ -48,7 +48,7 @@ void Main()
 		ForceHalt = true;
 	});
 
-	cpu.AddBreakpoint("fn_compute_answer__next_j", c =>
+	if (false) cpu.AddBreakpoint("fn_compute_answer__next_j", c =>
 	{
 		using var bpout = new BreakpointOutput();
 		bpout.WriteLine("Checking: ({0}, {1}) - ({2}, {3})",
@@ -58,7 +58,7 @@ void Main()
 					c.Memory[c.Toc + 1]
 					);
 	});
-	cpu.AddBreakpoint("fn_compute_answer__goto_next_j", c =>
+	if (false) cpu.AddBreakpoint("fn_compute_answer__goto_next_j", c =>
 	{
 		using var bpout = new BreakpointOutput();
 		var sb = new StringBuilder();
@@ -72,7 +72,7 @@ void Main()
 	});
 	foreach (var prefix in new string[] { "top_line_", "bottom_line_", "left_line_", "right_line_" })
 	{
-		cpu.AddBreakpoint("fn_compute_answer__" + prefix + "line_loop",
+if (false) 		cpu.AddBreakpoint("fn_compute_answer__" + prefix + "line_loop",
 			c =>
 			{ 
 				using var bpout = new BreakpointOutput();
@@ -102,105 +102,6 @@ void Main()
 	using var tmp = stdout_file;
 
 	cpu = cpu.Patch(memory_patches);
-	cpu.AddBreakpoint("debugbp__all_tiles_read", c => DebugTileCoordinates("debugbp__all_tiles_read", c));
-	if (false) cpu.AddBreakpoint("heap1w_sift_down", c =>
-	{
-		using var bpout = new BreakpointOutput();
-		bpout.WriteLine("sifting down: root = {0}", c.Memory[c.Toc + 6]);
-	});
-
-	if (false) cpu.AddBreakpoint("fn_heap1w_sift_down__loop", c =>
-	{
-		using var bpout = new BreakpointOutput();
-		bpout.WriteLine("sifting down (loop): root = {0}", c.Memory[c.Toc - 1]);
-		DebugTileHeap("sift down loop", c, bpout);
-	});
-	// debug for comparison results
-	if (false) cpu.AddBreakpoint(883, c =>
-	{
-		using var bpout = new BreakpointOutput();
-		var array_start = c.Memory[c.Toc - 6];
-		var p_left = c.Memory[_name2Addr["fn_heap1w_sift_down__p_left"]];
-		var p_right = c.Memory[_name2Addr["fn_heap1w_sift_down__p_right"]];
-		//var sym = c.Memory[c.Toc + 1] == 0 ? "<=" : ">";
-		bpout.WriteLine("R-L comparison result: array[{0}], array[{2}] = {1}",
-				p_left - array_start,
-				c.Memory[c.Toc + 1],
-				p_right - array_start);
-	});
-	if (false) cpu.AddBreakpoint(933, c =>
-	{
-		using var bpout = new BreakpointOutput();
-		var array_start = c.Memory[c.Toc - 6];
-		var p_root = c.Memory[_name2Addr["fn_heap1w_sift_down__p_root"]];
-		var p_child = c.Memory[_name2Addr["fn_heap1w_sift_down__p_child"]];
-		//var sym = c.Memory[c.Toc + 1] == 0 ? "<=" : ">";
-		bpout.WriteLine("P-C comparison result: array[{0}], array[{2}] = {1}",
-				p_root - array_start,
-				c.Memory[c.Toc + 1],
-				p_child - array_start);
-	});
-
-	if (false) cpu.AddBreakpoint("fn_compress_x_loop__compress_next_x", c =>
-	{
-		DebugTileCoordinates("compress_next_x", c);
-	});
-	cpu.AddBreakpoint("fn_compress_y_loop__compress_next_y", c =>
-	{
-		DebugTileCoordinates("compress_next_y", c);
-	});
-	cpu.AddBreakpoint("debugbp__build_tile_list_done", c => DebugTileHeap("debugbp__build_tile_list_done", c));
-	cpu.AddBreakpoint("debugbp__heap1w_pop_after_swap",
-			c =>
-			{
-				using var bpout = new BreakpointOutput();
-				bpout.WriteLine("breakpoint: debugbp__heap1w_pop_after_swap");
-				bpout.WriteLine();
-				bpout.WriteLine("heap array size: {0}", c.Memory[c.Toc + 2] - c.Memory[c.Toc + 1]);
-				DebugTileHeap("debugbp__heap1w_pop_after_swap", c, bpout);
-			});
-	cpu.AddBreakpoint("debugbp__x_heap_done", 
-		c => DebugTileHeap("debugbp__x_heap_done", c)
-		);
-	cpu.AddBreakpoint("debugbp__y_heap_done",
-		c => DebugTileHeap("debugbp__y_heap_done", c)
-		);
-	cpu.AddBreakpoint("debugbp__done_x_compression", 
-		c => DebugTileCoordinates("debugbp__done_x_compression", c)
-		);
-	cpu.AddBreakpoint("debugbp__done_y_compression", 
-		c => DebugTileCoordinates("debugbp__done_y_compression", c)
-		);
-	cpu.AddBreakpoint("fn_draw_perimeter__draw_next_line", c =>
-	{
-		using var bpout = new BreakpointOutput();
-		var rb = c.Toc;
-		bpout.WriteLine("Draw a line from ({0}, {1}) to ({2}, {3})", 
-			cpu.Memory[rb + 0], cpu.Memory[rb + 1],
-			cpu.Memory[rb + 2], cpu.Memory[rb + 3]
-		);
-	});
-	if (false) 	cpu.AddBreakpoint("fn_draw_perimeter__draw_next_tile_start", c =>
-	{
-		using var bpout = new BreakpointOutput();
-		var grid_start = (int) ReadVariable(c, "grid_start");
-		var grid_width = (int) ReadVariable(c, "grid_width");
-		//var grid_height = (int) ReadVariable(c, "grid_height");
-		// +0 is the instruction (add)
-		// +1 is 1
-		// +2 is 0
-		// +3 is the destination address
-		var rb_offset = (int)c.Memory[c.Pc + 3];
-		var write_address = rb_offset + c.Toc;
-		var grid_offset = write_address - grid_start;
-		bpout.WriteLine("Drawing tile at x={0}, y={1}", grid_offset % grid_width, grid_offset / grid_width);
-	});
-	cpu.AddBreakpoint("draw_perimeter",
-		c =>
-		{
-			DebugTileCoordinates("draw_perimeter", c);
-		}
-	);
 
 	var input_text = File.ReadAllText(Path.Combine(dir, INPUT_FILE_PATH));
 

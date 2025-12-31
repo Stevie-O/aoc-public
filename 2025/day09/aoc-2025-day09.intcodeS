@@ -1,5 +1,5 @@
 jf 0 &start
-@raw raw_output: 0	 use_dle: 1  disable_compression:1
+@raw raw_output: 0	 use_dle: 1  disable_compression:0
 start: rbo &red_tiles
 # weird compiler quirk: it accepts "rbo heap_size:1" but not "rbo heap_size: 1". odd.
 rbo heap_size:0
