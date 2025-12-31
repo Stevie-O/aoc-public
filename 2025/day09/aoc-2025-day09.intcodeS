@@ -468,10 +468,11 @@ add first_tile_offset:0 ~0 first_tile_offset
 add first_tile_offset grid_offset grid_offset
 
 # initialize coord_delta off of the "wraparound" line from the last tile in the input to the first tile
-add final_dx final_dy coord_delta
+mul final_dy -1 final_dy_inv
+add final_dx final_dy_inv:0 side_delta
 
 draw_next_line:
-@cpy coord_delta prev_coord_delta
+@cpy side_delta:0 prev_side_delta
 @jeq ~0 ~2 &line_is_vertical
 # ok, line is horizontal from x=~0 to x=~2
 @cpy ~0 current_coord
@@ -482,15 +483,17 @@ lt ~2 ~0 x_negative
 mul x_negative -1 x_negative
 add x_positive:0 x_negative:0 coord_delta
 @cpy coord_delta d_address
+# horizontal lines have side_delta = coord_delta
+@cpy coord_delta side_delta
 
-@jne coord_delta -1 &not_north_then_west
-@jne prev_coord_delta:0 1 &not_north_then_west
+@jne side_delta -1 &not_north_then_west
+@jne prev_side_delta:0 1 &not_north_then_west
 # okay, this is a north-to-west turn.
-@cpy prev_coord_delta first_column_orientation
+@cpy prev_side_delta first_column_side
 @jmp &draw_first_tile
 
 not_north_then_west:
-@cpy coord_delta first_column_orientation
+@cpy side_delta first_column_side
 @jmp &draw_first_tile
 
 ################################
@@ -506,16 +509,18 @@ lt ~3 ~1 y_negative
 mul y_negative -1 y_negative
 add y_positive:0 y_negative:0 coord_delta
 mul coord_delta grid_width d_address
+# veritcal lines have side_delta = -coord_delta
+mul coord_delta -1 side_delta
 
-@jne coord_delta 1 &not_west_then_north
-@jne prev_coord_delta -1 &not_west_then_north
+@jne side_delta 1 &not_west_then_north
+@jne prev_side_delta -1 &not_west_then_north
 
 # okay, this is a west-to-north turn.
-@cpy prev_coord_delta first_column_orientation
+@cpy prev_side_delta first_column_side
 @jmp &draw_first_tile
 
 not_west_then_north:
-@cpy coord_delta first_column_orientation
+@cpy side_delta first_column_side
 # @jmp &draw_first_tile
 
 #################################################
@@ -525,7 +530,7 @@ not_west_then_north:
 
 draw_first_tile:
 @cpy grid_offset first_grid_offset
-mul first_column_orientation:0 perimeter_orientation first_grid_offset:~0
+mul first_column_side:0 perimeter_orientation first_grid_offset:~0
 add grid_offset d_address grid_offset
 add current_coord coord_delta current_coord
 # important: this loop must never draw the last tile in the line!
@@ -533,7 +538,12 @@ add current_coord coord_delta current_coord
 @jeq current_coord target_coord &two_tile_line
 
 draw_next_tile:
-mul coord_delta perimeter_orientation grid_offset:~0
+# side_delta indicates whether which side of the line we're drawing is inside the overall perimeter
+# this is the same as the X direction for horizontal lines, and the opposite of the Y direction for
+# veritical lines
+# I had tried inverting the Y-axis to make them align the same way, but for some reason, it didn't
+# work: the Y-axis was drawn incorrectly. Odd.
+mul side_delta perimeter_orientation grid_offset:~0
 add grid_offset d_address:0 grid_offset
 add current_coord coord_delta:0 current_coord
 @jne current_coord:0 target_coord:0 &draw_next_tile
@@ -660,7 +670,7 @@ add grid_height 1 grid_height
 # ^^^ the above is WRONG
 # I'm not sure why, but it's actually simply (max_input_y - Y) to map the Y coordinate into the
 # correct range.
-@cpy max_input_y y_offset
+#@cpy max_input_y y_offset
 
 
 adjust_next_tile:
@@ -672,8 +682,9 @@ dont_set_top_tile_index:
 add current_tile_index 2 current_tile_index
 
 add ~0 x_offset ~0
-mul ~1 -1 y_inv
-add y_inv:0 y_offset ~1
+#mul ~1 -1 y_inv
+#add y_inv:0 y_offset ~1
+add ~1 y_offset ~1
 rbo 2
 add red_tiles_left -1 red_tiles_left
 jt red_tiles_left:0 &adjust_next_tile
@@ -739,15 +750,9 @@ add red_tiles_y item1 read_y1
 add red_tiles_y item2 read_y2
 @cpy read_y1:*0 item1_y
 @cpy read_y2:*0 item2_y
-# if item1.y < item2.y then return 1
-#
-# NOTE: doing it this way causes the Y-coordinates to be **inverted** and thus match the standard
-# Cartesian plane: lines that go "down" will have DY=-1 and lines that go "up" will have DY=1
-#
-# I could also get the same effect by multiplying incoming coordinates by -1, but this is easier to
-# debug.
-#
-lt item1_y item2_y return0
+# if item2.y < item1.y then return 1
+lt item2_y item1_y return0
+
 # NOTE: after this point, item1 has been *trashed*
 # TODO: figure out a way to have the compiler help me with that shit. i've been bitten way too
 # many times.
