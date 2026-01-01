@@ -14,12 +14,14 @@ const bool WRITE_OUTPUT_LOG = false;
 
 const string OUTPUT_LOG_NAME = "output.txt";
 const string INPUT_FILE_PATH =
-	"example.txt"
+	//"example.txt"
 	//"../../puzzle_inputs/2025-09.txt"
+	"testcase-1.txt"
 	//"hostile-testcase-1.txt"
 	//"hostile-testcase-2.txt"
-	
 	;
+// reverse the lines in the input file
+const bool REVERSE_INPUT_LINES = true;
 const int INSTRUCTION_LIMIT =
 	//1_000_000_000
 	100_000_000
@@ -136,6 +138,10 @@ if (false) 		cpu.AddBreakpoint("fn_compute_answer__" + prefix + "line_loop",
 	cpu = cpu.Patch(memory_patches);
 
 	var input_text = File.ReadAllText(Path.Combine(dir, INPUT_FILE_PATH));
+	if (REVERSE_INPUT_LINES)
+	{
+		input_text = string.Join("", Regex.Split(input_text, @"(?<=\n)").Reverse());
+	}
 
 	cpu = cpu.WithIO(new IntcodeInput(input_text),
 		PrintOutput
@@ -196,9 +202,23 @@ if (false) 		cpu.AddBreakpoint("fn_compute_answer__" + prefix + "line_loop",
 			for (int c = 0; c < grid_width; c++, addr++)
 			{
 				var val = cpu.Memory[addr];
+				var ch = val switch
+				{
+					0 => '.',
+					-1 => '<',
+					-2 => '^',
+					-3 => 'E',
+					// the following line looks screwy
+					>= 0 => '#', 
+					_ => '?',
+				};
+					
+					sb.Append(ch);
+				/*
 				if (val == 0) sb.Append('.');
 				else if (val < 0) sb.Append('E');
 				else sb.Append('#');
+				*/
 			}
 			sb.AppendLine();
 		}

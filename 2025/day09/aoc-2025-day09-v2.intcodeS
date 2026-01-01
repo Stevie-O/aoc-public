@@ -341,6 +341,9 @@ jf perimeter_orientation &assertion_failed
 rbo top_tile_index_inv:0
 @endfn
 
+# htmt_ne and vtmc_ws need to be tweaked, because they are ALWAYS positive regardless of CW/CCW status
+mul 3 perimeter_orientation htmt_ne
+mul 3 perimeter_orientation vtmt_ws
 rbo heap_size
 
 ###############################################################
@@ -462,7 +465,7 @@ rbo heap_size_inv
 
 @reference draw_perimeter
 
-@fn naked draw_perimeter() global(red_tiles, grid_start, red_tiles_count, grid_width, final_dx, final_dy, perimeter_orientation)
+@fn naked draw_perimeter() global(red_tiles, grid_start, red_tiles_count, grid_width, final_dx, final_dy, perimeter_orientation, horz_tile_mapping_table, vert_tile_mapping_table)
 
 @cpy red_tiles_count red_tiles_left
 mul &red_tiles -1 red_tiles_inv
@@ -492,14 +495,9 @@ add x_positive:0 x_negative:0 coord_delta
 # horizontal lines have side_delta = coord_delta
 @cpy coord_delta side_delta
 
-@jne side_delta -1 &not_north_then_west
-@jne prev_side_delta:0 1 &not_north_then_west
-# okay, this is a north-to-west turn.
-@cpy prev_side_delta first_column_side
-@jmp &draw_first_tile
-
-not_north_then_west:
-@cpy side_delta first_column_side
+mul prev_side_delta:0 2 horz_table_index
+add horz_table_index side_delta horz_table_index
+add &horz_tile_mapping_table horz_table_index:0 tmt_read_first_ptr
 @jmp &draw_first_tile
 
 ################################
@@ -515,18 +513,12 @@ lt ~3 ~1 y_negative
 mul y_negative -1 y_negative
 add y_positive:0 y_negative:0 coord_delta
 mul coord_delta grid_width d_address
-# veritcal lines have side_delta = -coord_delta
+# vertical lines have side_delta = -coord_delta
 mul coord_delta -1 side_delta
 
-@jne side_delta 1 &not_west_then_north
-@jne prev_side_delta -1 &not_west_then_north
-
-# okay, this is a west-to-north turn.
-@cpy prev_side_delta first_column_side
-@jmp &draw_first_tile
-
-not_west_then_north:
-@cpy side_delta first_column_side
+mul prev_side_delta 2 vert_table_index
+add vert_table_index side_delta vert_table_index
+add &vert_tile_mapping_table vert_table_index:0 tmt_read_first_ptr
 # @jmp &draw_first_tile
 
 #################################################
@@ -535,8 +527,12 @@ not_west_then_north:
 # draw the first tile
 
 draw_first_tile:
+@cpy tmt_read_first_ptr:*0 first_write_value
+add tmt_read_first_ptr 1 tmt_read_second_ptr
+@cpy tmt_read_second_ptr:*0 tile_write_value
+
 @cpy grid_offset first_grid_offset
-mul first_column_side:0 perimeter_orientation first_grid_offset:~0
+mul first_write_value:0 perimeter_orientation first_grid_offset:~0
 add grid_offset d_address grid_offset
 add current_coord coord_delta current_coord
 # important: this loop must never draw the last tile in the line!
@@ -549,7 +545,7 @@ draw_next_tile:
 # veritical lines
 # I had tried inverting the Y-axis to make them align the same way, but for some reason, it didn't
 # work: the Y-axis was drawn incorrectly. Odd.
-mul side_delta perimeter_orientation grid_offset:~0
+mul tile_write_value:0 perimeter_orientation grid_offset:~0
 add grid_offset d_address:0 grid_offset
 add current_coord coord_delta:0 current_coord
 @jne current_coord:0 target_coord:0 &draw_next_tile
@@ -628,6 +624,9 @@ jt y_left:0 &next_row
 # search more efficient
 #
 ###############################################################
+
+hlt
+
 
 @reference compute_gridh
 @fn naked compute_gridh() global(red_tiles, grid_start, grid_width, grid_height, grid_size, grid_size_inv, x_map_start, assertion_failed_line, assertion_failed)
@@ -834,7 +833,7 @@ next_i:
 #mul i_y:0 -1 neg_i_y
 
 rbo 2
-add grid_rb_offset -2 grid_rb_offset
+add grid_rb_offset:0 -2 grid_rb_offset
 # j ranges from (i+1) .. (red_tiles_count - 1)
 @cpy loop1_left loop2_left
 mul loop1_left -2 j_end_rbo_adj
@@ -903,8 +902,8 @@ mul x1 -1 x1_inv
 mul y1 -1 y1_inv
 add x1_inv:0 x2 dx
 add y1_inv:0 y2 dy
-add dx 1 dx
-add dy 1 dy
+add dx:0 1 dx
+add dy:0 1 dy
 
 ###################################################################################
 #
@@ -915,9 +914,9 @@ add dy 1 dy
 mul y1 grid_width y1_offset
 mul y2 grid_width y2_offset
 
-add y1_offset x1 x1y1_offset
-add y1_offset x2 x2y1_offset
-add y2_offset x1 x1y2_offset
+add y1_offset:0 x1 x1y1_offset
+add y1_offset   x2 x2y1_offset
+add y2_offset:0 x1 x1y2_offset
 
 # Check the TOP line from (x1, y1) to (x2, y1)
 
@@ -1887,6 +1886,42 @@ hlt
 
 @raw final_dx: 0 final_dy: 0
 @raw min_input_x: 0 max_input_x: 0 min_input_y: 0 max_input_y: 0
+
+# side delta is:
+#  +1 for horizontal lines going east
+#  -1 for horizontal lines going west
+#  +1 for vertical   lines going north
+#  -1 for vertical   lines going south
+
+# horz_tile_mapping_table[2*(prev_side_delta) + side_delta]
+
+# SOUTH->WEST (index -3) is -3, because below and right are both outside in CCW
+# further along, WEST is -2 (below is outside CW and inside CCW; to the right is always inside because it's on the edge)
+@raw -3 -2
+# SOUTH->EAST (index -1) is  2, because below is inside for CW and outside for CCW, but to the right is always inside
+# futher along, EAST is 2 (below is inside CW, outside CCW; to the right is always inside because it's on the edge.)
+@raw 2 horz_tile_mapping_table: 2
+# NORTH->WEST (index 1) is 1 (right is inside CW and outside CCW; below is always inside because it's on the edge.)
+# further along, WEST is -2 (below is outside CW, inside CCW; to the right is always inside because it's on the edge.)
+@raw 1 -2
+# NORTH->EAST (index 3) is really tricky, because it's ALWAYS inside to the left and right, regardless of orientation
+# further along, EAST is 2 (below is inside CW, outside CCW; to the right is always inside because it's on the edge.)
+@raw htmt_ne: 3 2
+
+# vert_tile_mapping_table[2*(prev_side_delta) + side_delta]
+
+# WEST->SOUTH (index -3) is tricky: it's ALWAYS inside to the left and right, regardless of orientation
+# further along, SOUTH is -1 (right is outside CW, inside CCW; below is always inside because it's on the edge.)
+@raw vtmt_ws: 3 -1
+# WEST->NORTH (index -1) is -2: below is outside for CW and inside for CCW; right is always inside because it's on the edge.
+# futher along, NORTH is 1 (right is inside CW, outside CCW; below is always inside because it's on the edge.)
+@raw -2 vert_tile_mapping_table: 1
+# EAST->SOUTH (index 1) is -1 (right is outside CW and inside CCW; below is always inside because it's on the edge.)
+# further along, SOUTH is -1 (right is outside CW, inside CCW; below is always inside because it's on the edge.)
+@raw -1 -1
+# EAST->NORTH (index 3) is 3 (right and below are inside for CW and outside for CCW)
+# further along, NORTH is 1 (right is inside CW, outside CCW)
+@raw 3 1
 
 red_tiles:
 @raw first_red_x: 0 first_red_y: 0
