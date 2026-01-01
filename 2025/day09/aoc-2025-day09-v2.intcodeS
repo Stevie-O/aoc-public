@@ -1,0 +1,1957 @@
+jf 0 &start
+@raw raw_output: 0	 use_dle: 1  disable_compression:1
+start: rbo &red_tiles
+# weird compiler quirk: it accepts "rbo heap_size:1" but not "rbo heap_size: 1". odd.
+rbo heap_size:0
+# heap layout:
+# red_tiles --- tile sort heap --- x-map --- y-map -- 2D Grid
+
+# suppress compiler errors
+@reference assertion_failed assertion_failed_line
+
+####################################################
+#
+# AOC 2025 Day 9 Intcode Solver
+#
+# Input is in ASCII (UTF-32/UCS-4), output is in ASCII (UTF-32/UCS-4).
+#
+# I don't think I could have solved this one without first solving day 8.
+#
+# Features:
+#
+# - Solves both parts
+# - No built-in limits on input size -- whatever your IntcodeVM can handle
+#
+# All CRs ('\r' aka 13 or 0x0D) in input are **completely ignored**.
+#
+# Since the input size is indeterminate, EOF must be reported via any of these means:
+#
+# - A blank line
+# - 0x00 (ASCII NUL)
+# - 0x1A (Ctrl-Z, ASCII SB; MS-DOS or CPM end-of-file indicator)
+# - 0x04 (Ctrl-D, ASCII EOT; Default EOF replacement character on *nix-style TTY drivers)
+# - a negative number (`EOF` constant returned by `fgetc`, `getc`, or `getchar`; see `stdio.h`)
+
+##########################
+#
+# EXECUTION OPTIONS BLOCK - Memory addresses 1, 4-5
+#
+# [4]: raw_output: Default 0. 0 = ASCII output for integers. 1 = Output all integers as raw integer values.
+# [5]: use_dle:    Default 1. 1 = Prefix all raw integer outputs with a a DLE (0x10) character.
+#                             This flag will normally have no effect unless RawOutput is enabled.
+# [6]: disable_compression: Default 0. Disable X- and Y-compression.
+#         Disabling compression changes the runtime complexity from O(n^2) to O(abn^2),
+#         where 'n' is the number of red (input) tiles, 'a' is the width of the tile grid,
+#         and 'b' is the height of the tile grid
+
+
+#############################################################################
+#
+# PHASE 1: Read puzzle input
+#
+# Read each tile
+
+read_next_tile:
+
+# skip past the heap
+# read one of the following: (a) an integer (X) followed by ','  -or- (b) immediate '\n' or EOF
+@cpy ',' ~1
+@cpy 0 ~2
+@cpy 1 ~3
+@cpy 1 ~4
+@call &read_nonnegative_integer_checked
+# ~2 = 1 if we read an integer terminated by '-', 0 if it was a blank line terminated by '\n'
+jf ~2 &input_eof
+@cpy ~1 tile_x
+
+# read an integer (Y) followed by '\n'. anything else will error.
+@cpy '\n' ~1
+@cpy 0 ~2
+@cpy 0 ~3
+@cpy 0 ~4
+@call &read_nonnegative_integer_checked
+@cpy ~1 tile_y
+
+# [x, y]
+@cpy tile_x:0 ~0
+@cpy tile_y:0 ~1
+jf red_tiles_count &first_tile
+eq ~0 ~-2 same_x
+eq ~1 ~-1 same_y
+add same_x:0 same_y:0 same_xy
+@jne same_xy:0 1 &invalid_tile_pair_seq
+
+first_tile:
+rbo 2
+
+add red_tiles_count 1 red_tiles_count
+# so there are two ways to track "half the number of tiles"
+# one way requires 2 instructions per tile. I have about 500 tiles in my input, so that's about 1000 instructions.
+# the other costs about 23 instructions per bit.  That's about 10, so that's 230 instructions.
+# lo and behold: dividing the total count by 2 is still cheaper
+jf disable_compression &read_next_tile
+@jle red_tiles_count 1 &init_min_max_xy
+
+#update_min_max_xy:
+
+# if compression is disabled, we need to do some more work
+@jge tile_x min_input_x &not_new_min_input_x
+@cpy tile_x min_input_x
+@jmp &check_min_max_y
+not_new_min_input_x:
+@jle tile_x max_input_x &check_min_max_y
+@cpy tile_x max_input_x
+
+check_min_max_y:
+@jge tile_y min_input_y &not_new_min_input_y
+@cpy tile_y min_input_y
+@jmp &read_next_tile
+not_new_min_input_y:
+@jle tile_y max_input_y &read_next_tile
+@cpy tile_y max_input_y
+@jmp &read_next_tile
+
+init_min_max_xy:
+@cpy tile_x min_input_x
+@cpy tile_x max_input_x
+@cpy tile_y min_input_y
+@cpy tile_y max_input_y
+@jmp &read_next_tile
+
+
+################################################################################################
+
+input_eof:
+# we need at least 4 tiles to be valid
+@jlt red_tiles_count 4 &too_few_tiles
+
+# verify that the last tile in the input lines up with the first tile in the input
+eq first_red_x ~-2 same_x
+eq first_red_y ~-1 same_y
+add same_x same_y same_xy
+@jne same_xy 1 &invalid_tile_pair_ends
+
+# compute the direction of the final line
+
+@reference compute_final_dx
+@fn naked compute_final_dx() global(first_red_x, final_dx)
+lt first_red_x ~-2 dx_positive
+lt ~-2 first_red_x dx_negative
+mul dx_negative -1 dx_negative
+add dx_positive:0 dx_negative:0 final_dx
+@endfn
+
+@reference compute_final_dy
+@fn naked compute_final_dy() global(first_red_y, final_dy)
+lt first_red_y ~-1 dy_positive
+lt ~-1 first_red_y dy_negative
+# NOTE: during processing, we're going to flip the Y-axis so that Y *decreases* as you go downward
+# thus, we need to make dy_positive be -1 and dy_negative be 1
+mul dy_positive -1 dy_positive
+add dy_positive:0 dy_negative:0 final_dy
+@endfn
+
+# add reserve space for the wraparound (this makes things a lot easier)
+rbo 2
+
+# compute red_tiles_size and red_tiles_size_inv
+add red_tiles_count 1 red_tiles_size
+mul red_tiles_size 2 red_tiles_size
+mul red_tiles_size -1 red_tiles_size_inv
+@cpy red_tiles_size heap_size
+
+@__declare_label debugbp__all_tiles_read
+
+# now allocate the tile list heap array
+add &red_tiles red_tiles_size tile_list_start
+@cpy red_tiles_count tile_list_size
+add heap_size tile_list_size heap_size
+
+mul heap_size -1 heap_size_inv
+
+# build the tile list (simple sequential 0..n)
+# note that tile entries are *addresses*
+
+build_tile_list:
+add tile_list_count tile_list_count ~0
+rbo 1
+add tile_list_count 1 tile_list_count
+@jne tile_list_count tile_list_size &build_tile_list
+
+@__declare_label debugbp__build_tile_list_done
+
+add tile_list_start tile_list_size x_map_start
+
+jt disable_compression &null_compression
+
+###############################################################
+#
+# Phase 2.1: Compress X coordinates
+#
+###############################################################
+
+# okay, now convert it to a min-heap, ordered by X-coordinate
+@cpy tile_list_start ~1
+@cpy tile_list_count ~2
+@cpy &min_heap_x_coordinate ~3
+#@cpy 0 ~4
+@call &heapify_1w
+
+@cpy __LINE__ ~0
+@__declare_label debugbp__x_heap_done
+@cpy __LINE__ ~0
+
+# now compress the X-coordinates one-at-a-time
+
+@reference compress_x_loop
+@fn naked compress_x_loop() global(red_tiles, tile_list_start, tile_list_size, min_heap_x_coordinate, heap1w_pop, grid_width)
+
+@cpy tile_list_size tile_list_left
+
+compress_next_x:
+
+@cpy tile_list_start tile_read_ptr
+@cpy tile_read_ptr:*0 next_tile_id
+add next_tile_id:0 &red_tiles next_tile_x_read_ptr
+@cpy next_tile_x_read_ptr:*0 next_tile_x
+@jeq next_tile_x:0 prev_tile_x:-1 &read_my_lips_no_new_x
+# new unique X-coordinate found
+@cpy next_tile_x prev_tile_x
+@cpy next_tile_x ~0
+rbo 1
+add grid_width 1 grid_width
+read_my_lips_no_new_x:
+# write the compressed X-coordinate back over the this tile
+@cpy next_tile_x_read_ptr next_tile_x_write_ptr
+add grid_width -1 next_tile_x_write_ptr:*0
+# move onto the next one
+add tile_list_left -1 tile_list_left
+jf tile_list_left:0 &auto__return
+
+@cpy tile_list_start ~1
+# we need to add 1 because tile_list_left is 1 less than the true value, since we 
+# subtracted 1 above but haven't actually called heap1w_pop yet
+add tile_list_left 1 ~2
+@cpy &min_heap_x_coordinate ~3
+# tail call to heap1w_pop
+@cpy &compress_next_x ~0
+@jmp &heap1w_pop
+
+@endfn
+
+add x_map_start grid_width y_map_start
+add heap_size grid_width heap_size
+
+@__declare_label debugbp__done_x_compression
+
+###############################################################
+#
+# Phase 2.2: Compress Y coordinates
+#
+###############################################################
+
+# okay, now convert it to a min-heap, ordered by Y-coordinate
+@cpy tile_list_start ~1
+@cpy tile_list_count ~2
+@cpy &min_heap_y_coordinate ~3
+#@cpy 0 ~4
+@call &heapify_1w
+
+@cpy __LINE__ ~0
+@__declare_label debugbp__y_heap_done
+@cpy __LINE__ ~0
+
+
+# save the first element in the heap off
+@cpy tile_list_start read_top_y_tile_ptr
+@cpy read_top_y_tile_ptr:*0 top_tile_index
+
+@reference compress_y_loop
+@fn naked compress_y_loop() global(red_tiles, tile_list_start, tile_list_size, min_heap_y_coordinate, heap1w_pop, grid_height, disable_compression)
+
+@cpy tile_list_size tile_list_left
+add &red_tiles 1 red_tiles_y
+
+compress_next_y:
+
+@cpy tile_list_start tile_read_ptr
+@cpy tile_read_ptr:*0 next_tile_id
+add next_tile_id:0 red_tiles_y:0 next_tile_y_read_ptr
+@cpy next_tile_y_read_ptr:*0 next_tile_y
+@jeq next_tile_y:0 prev_tile_y:-1 &read_my_lips_no_new_y
+# new unique X-coordinate found
+@cpy next_tile_y prev_tile_y
+@cpy next_tile_y ~0
+rbo 1
+add grid_height 1 grid_height
+read_my_lips_no_new_y:
+# write the compressed Y-coordinate back over the this tile
+@cpy next_tile_y_read_ptr next_tile_y_write_ptr
+add grid_height -1 next_tile_y_write_ptr:*0
+# move onto the next one
+add tile_list_left -1 tile_list_left
+jf tile_list_left:0 &auto__return
+
+@cpy tile_list_start ~1
+add tile_list_left 1 ~2
+@cpy &min_heap_y_coordinate ~3
+@cpy &compress_next_y ~0
+@jmp &heap1w_pop
+
+@endfn
+
+@__declare_label debugbp__done_y_compression
+add heap_size grid_height heap_size
+compression_done:
+mul heap_size -1 heap_size_inv
+
+###############################################################
+#
+# Phase 2.3: Determine perimeter orientation
+#
+###############################################################
+#
+# +1: the inside of the perimeter is to the RIGHT of each line as it is being drawn
+#     (the perimeter is drawn clockwise)
+# -1: the inside of the perimeter is to the LEFT of each line as it is being drawn
+#     (the perimeter is drawn counterclockwise)
+
+# note that this is the exact opposite of the mathematical definition of polygon orientation,
+# where positive means counterclockwise, and negative means clockwise.
+
+rbo heap_size_inv
+
+@reference find_perimeter_orientation
+@fn naked find_perimeter_orientation() global(top_tile_index, perimeter_orientation, assertion_failed, assertion_failed_line)
+
+mul top_tile_index -1 top_tile_index_inv
+rbo top_tile_index
+# we are now pointed at the FIRST tile with the SMALLEST (in input) Y-coordinate
+@cpy __LINE__ assertion_failed_line
+@jne ~1 ~3 &assertion_failed
+# we should either have (~0 < ~2) meaning clockwise,
+# or (~2 > ~0) meaning counterclockwise
+lt ~0 ~2 is_clockwise
+lt ~2 ~0 is_ccw
+mul is_ccw -1 is_ccw
+add is_clockwise:0 is_ccw:0 perimeter_orientation
+@cpy __LINE__ assertion_failed_line
+jf perimeter_orientation &assertion_failed
+
+rbo top_tile_index_inv:0
+@endfn
+
+rbo heap_size
+
+###############################################################
+#
+# Phase 2-end
+#
+###############################################################
+
+# copy the first tile's compressed coordinates to just past the last tile
+add tile_list_start -2 write_last_entry_x
+add tile_list_start  1 write_last_entry_y
+@cpy first_red_x write_last_entry_x:*0
+@cpy first_red_y write_last_entry_y:*0
+
+###############################################################
+#
+# Phase 2-end
+#
+###############################################################
+
+
+###############################################################
+#
+# Phase 3: Build grid
+#
+###############################################################
+
+add y_map_start grid_height grid_start
+mul grid_height grid_width grid_size
+
+###############################################################
+#
+# Phase 3.1: Zero out the grid.  This ends with RB pointing at &grid[grid_size]
+#
+###############################################################
+
+@reference zero_grid_array
+@fn naked zero_grid_array() global(grid_size)
+
+# this can over-zero by up to 9 words, but that's okay, because there's nothing that matters after
+# that
+
+# this takes 14 cycles to zero 10 words, which is *vastly* more efficient than my original memcpy,
+# which takes 4 cycles per word plus function call overhead
+
+mul grid_size 3 cells_left
+zero_loop:
+@cpy 0 ~0
+@cpy 0 ~1
+@cpy 0 ~2
+@cpy 0 ~3
+@cpy 0 ~4
+@cpy 0 ~5
+@cpy 0 ~6
+@cpy 0 ~7
+@cpy 0 ~8
+@cpy 0 ~9
+rbo 10
+add cells_left -10 cells_left
+@jgt cells_left:0 0 &zero_loop
+# now, cells_left <= 0 and if it's not 0, it's the amount we went overboard
+rbo cells_left
+
+@endfn
+
+# update heap_size and heap_size_inv
+add heap_size grid_size heap_size
+add heap_size grid_size heap_size
+add heap_size grid_size heap_size
+add grid_start  grid_size gridh_start
+add gridh_start grid_size gridv_start
+
+mul heap_size -1 heap_size_inv
+
+###############################################################
+#
+# Phase 3.2: Draw the perimeter
+#
+###############################################################
+
+# +--------+-------+-------+-------------+-------------------+-------+--------------------+---------+---------+---------+-------+-------+----------+-------------+-----------+-------------+------------+------------+--------+------+------+---------+-------------+----------+-----------+-----------+
+# | Symbol | Coord | Delta | Description | CW Interpretation | CW[0] | CCW Interpretation | CCW [0] | CCW [1] | PrevSym | PrevC | PrevD | PrevDesc |   PrevCW    | PrevCW[0] |   PrevCCW   | PrevCCW[0] | PrevCCW[1] | NewSym | NewC | NewD | NewDesc |    NewCW    | NewCW[0] | [0]=p[0]? | [0]=n[0]? |
+# +--------+-------+-------+-------------+-------------------+-------+--------------------+---------+---------+---------+-------+-------+----------+-------------+-----------+-------------+------------+------------+--------+------+------+---------+-------------+----------+-----------+-----------+
+# | >      | dx    | +1    | EAST        | Top edge          | +1    | Bottom edge        | ?       | -1      |         |       |       |          |             |           |             |            |            |        |      |      |         |             |          |           |           |
+# | <      | dx    | -1    | WEST        | Bottom edge       | -1    | Top edge           | ?       | 1       |         |       |       |          |             |           |             |            |            |        |      |      |         |             |          |           |           |
+# | v      | dy    | -1    | SOUTH       | Right edge        | -1    | Left edge          | 1       | ?       |         |       |       |          |             |           |             |            |            |        |      |      |         |             |          |           |           |
+# | ^      | dy    | +1    | NORTH       | Left edge         | +1    | Right edge         | -1      | ?       |         |       |       |          |             |           |             |            |            |        |      |      |         |             |          |           |           |
+# | ┌      | dx    | +1    | NORTH-EAST  | outer edge        | ?     | inner edge         | nonzero | nonzero | ^       | dy    | +1    | NORTH    | Left edge   |         1 | Right edge  | -1         | ?          | >      | dx   | +1   | EAST    | Top edge    |        1 |           |           |
+# | ┌      | dy    | -1    | WEST-SOUTH  | inner edge        | ?     | outer edge         | nonzero | nonzero | <       | dx    | -1    | WEST     | Bottom edge |        -1 | Top edge    | ?          | 1          | v      | dy   | -1   | SOUTH   | Right edge  |       -1 |           |           |
+# | ┐      | dy    | +1    | EAST-SOUTH  | outer edge        | -1    | inner edge         | 1       | nonzero | >       | dx    | +1    | EAST     | Top edge    |         1 | Bottom edge | ?          | -1         | v      | dy   | -1   | SOUTH   | Right edge  |       -1 | FALSE     | TRUE      |
+# | ┐      | dx    | -1    | NORTH-WEST  | inner edge        | +1    | outer edge         | -1      | nonzero | ^       | dy    | +1    | NORTH    | Left edge   |         1 | Right edge  | -1         | ?          | <      | dx   | -1   | WEST    | Bottom edge |       -1 | TRUE      | FALSE     |
+# | └      | dy    | +1    | WEST-NORTH  | outer edge        | -1    | inner edge         | nonzero | 1       | <       | dx    | -1    | WEST     | Bottom edge |        -1 | Top edge    | ?          | 1          | ^      | dy   | +1   | NORTH   | Left edge   |        1 | TRUE      | FALSE     |
+# | └      | dx    | +1    | SOUTH-EAST  | inner edge        | +1    | outer edge         | nonzero | -1      | v       | dy    | -1    | SOUTH    | Right edge  |        -1 | Left edge   | 1          | ?          | >      | dx   | +1   | EAST    | Top edge    |        1 | FALSE     | TRUE      |
+# | ┘      | dx    | -1    | SOUTH-WEST  | outer edge        | -1    | inner edge         | 1       | 1       | v       | dy    | -1    | SOUTH    | Right edge  |        -1 | Left edge   | 1          | ?          | <      | dx   | -1   | WEST    | Bottom edge |       -1 | TRUE      | TRUE      |
+# | ┘      | dy    | +1    | EAST-NORTH  | outer edge        | +1    | outer edge         | -1      | -1      | >       | dx    | +1    | EAST     | Top edge    |         1 | Bottom edge | ?          | -1         | ^      | dy   | +1   | NORTH   | Left edge   |        1 | TRUE      | TRUE      |
+# +--------+-------+-------+-------------+-------------------+-------+--------------------+---------+---------+---------+-------+-------+----------+-------------+-----------+-------------+------------+------------+--------+------+------+---------+-------------+----------+-----------+-----------+
+
+
+# So, for the middle of a line, I could just do
+#      [0] = [1] = coord_delta * perimeter_orientation
+#
+# however, for corners, it's a bit trickier.
+#
+# when turning WEST after going NORTH or turning NORTH after going WEST,
+# the starting tile needs to be populated with prev_coord_delta * perimeter_orientation
+# for all other turns, the new coord_delta * perimeter_orientation will do the trick.
+#
+# I spent almost an entire afternoon figuring this out.  Geometry is not one of my strengths.
+
+
+# grid elements are as follows:
+# 0  = empty
+# -1 = consecutive elements to the RIGHT or BELOW that are 0 are **outside** of the perimeter
+#  1 = consecutive elements to the RIGHT or BELOW that are 0 are **inside** of the perimeter
+
+# rewind the relative base to &red_tiles[0]
+rbo heap_size_inv
+
+@reference draw_perimeter
+
+@fn naked draw_perimeter() global(red_tiles, grid_start, red_tiles_count, grid_width, final_dx, final_dy, perimeter_orientation)
+
+@cpy red_tiles_count red_tiles_left
+mul &red_tiles -1 red_tiles_inv
+add grid_start red_tiles_inv:0 grid_offset
+# ~0, ~1, ~2, ~3 are (x1, y1, x2, y2)
+# draw a line from (x1, y1) to (x2, y2)
+mul ~1 grid_width first_tile_offset
+add first_tile_offset:0 ~0 first_tile_offset
+add first_tile_offset grid_offset grid_offset
+
+# initialize coord_delta off of the "wraparound" line from the last tile in the input to the first tile
+mul final_dy -1 final_dy_inv
+add final_dx final_dy_inv:0 side_delta
+
+draw_next_line:
+@cpy side_delta:0 prev_side_delta
+@jeq ~0 ~2 &line_is_vertical
+# ok, line is horizontal from x=~0 to x=~2
+@cpy ~0 current_coord
+@cpy ~2 target_coord
+
+lt ~0 ~2 x_positive
+lt ~2 ~0 x_negative
+mul x_negative -1 x_negative
+add x_positive:0 x_negative:0 coord_delta
+@cpy coord_delta d_address
+# horizontal lines have side_delta = coord_delta
+@cpy coord_delta side_delta
+
+@jne side_delta -1 &not_north_then_west
+@jne prev_side_delta:0 1 &not_north_then_west
+# okay, this is a north-to-west turn.
+@cpy prev_side_delta first_column_side
+@jmp &draw_first_tile
+
+not_north_then_west:
+@cpy side_delta first_column_side
+@jmp &draw_first_tile
+
+################################
+################################
+
+line_is_vertical:
+# ok, line is vertical from y=~1 to y=~3
+@cpy ~1 current_coord
+@cpy ~3 target_coord
+
+lt ~1 ~3 y_positive
+lt ~3 ~1 y_negative
+mul y_negative -1 y_negative
+add y_positive:0 y_negative:0 coord_delta
+mul coord_delta grid_width d_address
+# veritcal lines have side_delta = -coord_delta
+mul coord_delta -1 side_delta
+
+@jne side_delta 1 &not_west_then_north
+@jne prev_side_delta -1 &not_west_then_north
+
+# okay, this is a west-to-north turn.
+@cpy prev_side_delta first_column_side
+@jmp &draw_first_tile
+
+not_west_then_north:
+@cpy side_delta first_column_side
+# @jmp &draw_first_tile
+
+#################################################
+#################################################
+
+# draw the first tile
+
+draw_first_tile:
+@cpy grid_offset first_grid_offset
+mul first_column_side:0 perimeter_orientation first_grid_offset:~0
+add grid_offset d_address grid_offset
+add current_coord coord_delta current_coord
+# important: this loop must never draw the last tile in the line!
+# the last tile in a line is always the first tile in the next line, which requires special handling
+@jeq current_coord target_coord &two_tile_line
+
+draw_next_tile:
+# side_delta indicates whether which side of the line we're drawing is inside the overall perimeter
+# this is the same as the X direction for horizontal lines, and the opposite of the Y direction for
+# veritical lines
+# I had tried inverting the Y-axis to make them align the same way, but for some reason, it didn't
+# work: the Y-axis was drawn incorrectly. Odd.
+mul side_delta perimeter_orientation grid_offset:~0
+add grid_offset d_address:0 grid_offset
+add current_coord coord_delta:0 current_coord
+@jne current_coord:0 target_coord:0 &draw_next_tile
+
+two_tile_line:
+
+rbo 2
+# compensate for the rbo 2
+add grid_offset -2 grid_offset
+add red_tiles_left -1 red_tiles_left
+jt red_tiles_left:0 &draw_next_line
+
+# reset rb to what it was upon entry
+# note that we need to do an extra 'rbo 2' because at the very end of the array is a copy of the
+# first tile, in order to greatly simplify the logic for drawing the line between the first and
+# last tile coordinates
+
+mul red_tiles_count -2 final_rbo
+rbo final_rbo:0
+
+@endfn
+
+# at this point, the relative base is pointed at &red_tiles
+
+###############################################################
+#
+# Phase 3.3: Fill the interior of the polygon with green tiles
+#
+# This is kind of expensive, but it's needed to make a proper
+# search more efficient
+#
+###############################################################
+
+@reference fill_interior
+@fn naked fill_interior() global(red_tiles, grid_start, grid_width, grid_height)
+
+mul &red_tiles -1 red_tiles_inv
+add red_tiles_inv:0 grid_start rbo_offset
+rbo rbo_offset:0
+# RB should now be pointed at grid_start
+
+@cpy grid_height y_left
+next_row:
+@cpy grid_width x_left
+@cpy 0 empty_is_green
+next_col:
+jf ~0 &is_empty
+lt 0 ~0 empty_is_green
+@jmp &goto_next_col
+
+is_empty:
+@cpy empty_is_green:0 ~0
+
+goto_next_col:
+rbo 1
+add x_left -1 x_left
+jt x_left:0 &next_col
+
+# next row
+add y_left -1 y_left
+jt y_left:0 &next_row
+
+#mul rbo_offset -1 rbo_offset_inv
+#rbo rbo_offset_inv:0
+
+@endfn
+
+# RB now points at the end of the main grid
+
+
+###############################################################
+#
+# Phase 3.4: Compute horizontal runs
+#
+# This is kind of expensive, but it's needed to make a proper
+# search more efficient
+#
+###############################################################
+
+@reference compute_gridh
+@fn naked compute_gridh() global(red_tiles, grid_start, grid_width, grid_height, grid_size, gridh_start, x_map_start, assertion_failed_line, assertion_failed)
+
+# rewind to the start of the main grid
+mul grid_size -1 grid_size_inv
+rbo grid_size_inv:0
+@cpy grid_size gridh_write_ptr_1
+@cpy grid_size gridh_write_ptr_2
+mul grid_width -1 grid_width_inv
+mul grid_width 2 grid_width_x2
+
+# okay, we're going to process each row BACKWARDS (i.e. right-to-left)
+@cpy grid_height y_left
+# move to the rightmost column in the hypothetical row -2
+rbo -1
+rbo grid_width_inv:0
+
+next_row:
+# we need to move TWO rows forward, because we need to point to the end of the current row,
+# but we're currently pointed at the end of the row before the previous row
+rbo grid_width_x2:0
+# handle the rightmost column specially
+# note that the rightmost column should NEVER be positive, since positive means that the column
+# to the right is either green or red
+@jle ~0 0 &right_column_valid
+@cpy __LINE__ assertion_failed_line
+@jmp &assertion_failed
+right_column_valid:
+
+lt ~0 0 run_length
+@cpy run_length:0 gridh_write_ptr_1:~0
+
+# we've just handled the rightmost column, so there's 1 fewer column than that left to handle
+rbo -1
+add grid_width -1 x_left
+
+next_column:
+# if the column is empty, it's empty
+jt ~0 &not_empty
+# if grid[y][x] == 0, then  (x, y) outside the polygon.
+@cpy 0 run_length
+@jmp &write_column
+
+not_empty:
+# if grid[y][x] is positive, then the run continues
+@jgt ~0 0 &continuation
+# if grid[y][x] is negative, there might be an interruption
+# but run_length is zero, we don't need to bother; we can treat it as a continuation of a run of length zero
+jf run_length &continuation
+
+# okay, here's where it gets tricky: We are sitting on a "right edge".  To our right is a "left edge".
+# we need to check if those two edges are adjacent.
+add x_left x_map_start right_col_map_read_ptr
+add right_col_map_read_ptr 1 cur_col_map_read_ptr
+add right_col_map_read_ptr:*0 -1 expected_cur_col_map_read_ptr
+@jeq cur_col_map_read_ptr:*0 expected_cur_col_map_read_ptr:0 &continuation
+
+# okay, they aren't actually adjacent. reset the run length to 0
+@cpy 0 run_length 
+
+continuation:
+add run_length 1 run_length
+
+write_column:
+@cpy run_length gridh_write_ptr_2:~0
+rbo -1
+add x_left -1 x_left
+jt x_left:0 &next_column
+
+add y_left -1 y_left
+jt y_left:0 &next_row
+
+rbo grid_width
+rbo grid_size_inv
+rbo 1
+
+@endfn
+
+
+hlt
+
+###############################################################
+#
+# Phase 4: Compute the answer
+#
+###############################################################
+
+@reference compute_answer
+
+@fn naked compute_answer() global(red_tiles, red_tiles_count, grid_start, grid_width, part1_answer, part2_answer, x_map_start, y_map_start)
+
+mul &red_tiles -1 red_tiles_neg
+add red_tiles_neg:0 grid_start grid_rb_offset
+
+# i ranges from 0 to red_tiles_count - 2, which is (red_tiles_count - 1) values
+add red_tiles_count -1 loop1_left
+
+next_i:
+@cpy ~0 i_x
+@cpy ~1 i_y
+#mul i_x:0 -1 neg_i_x
+#mul i_y:0 -1 neg_i_y
+
+rbo 2
+add grid_rb_offset -2 grid_rb_offset
+# j ranges from (i+1) .. (red_tiles_count - 1)
+@cpy loop1_left loop2_left
+mul loop1_left -2 j_end_rbo_adj
+
+next_j:
+
+# choose (x1, y1) and (x2, y2) such that x1 <= x2 and y1 <= y2
+@jlt ~0 i_x:0 &j_x_lesser
+# j_x >= i_x
+@cpy i_x x1
+@cpy ~0 x2
+@jmp &handle_j_y
+j_x_lesser:
+# j_x < i_x
+@cpy ~0 x1
+@cpy i_x x2
+
+handle_j_y:
+@jlt ~1 i_y:0 &j_y_lesser
+# j_y >= i_y
+@cpy i_y y1
+@cpy ~1 y2
+@jmp &done_set_x1y1x2y2
+j_y_lesser:
+# j_y < i_y
+@cpy ~1 y1
+@cpy i_y y2
+
+done_set_x1y1x2y2:
+
+# decompress the coordinates
+
+add x1:0 x_map_start full_x1_read_ptr
+add x2:0 x_map_start full_x2_read_ptr
+add y1:0 y_map_start full_y1_read_ptr
+add y2:0 y_map_start full_y2_read_ptr
+
+@cpy full_x1_read_ptr:*0 full_x1
+@cpy full_x2_read_ptr:*0 full_x2
+@cpy full_y1_read_ptr:*0 full_y1
+@cpy full_y2_read_ptr:*0 full_y2
+
+mul full_y1:0 -1 full_y1_inv
+mul full_x1:0 -1 full_x1_inv
+
+add full_x1_inv:0 full_x2:0 full_dx
+add full_y1_inv:0 full_y2:0 full_dy
+
+# (x1, y1) and (x2, y2) are inclusive, so we have to add 1
+add full_dx:0 1 full_dx
+add full_dy:0 1 full_dy
+
+mul full_dx full_dy rect_area
+
+# because every valid part 2 rectangle is also a valid part 1 rectangle, part2_answer <= part1_answer
+# if the new pair's rectangle is smaller area than the part2_answer, there's no point in checking
+@jle rect_area:0 part2_answer &goto_next_j
+@jle rect_area part1_answer &not_new_part1_answer
+@cpy rect_area part1_answer
+not_new_part1_answer:
+
+# okay, we now need to check if all of the tiles that make up the perimeter of (x1, y1)-(x2, y2)
+# are inside the polygon
+
+###################################################################################
+#
+#                            PART 2 VALIDITY CHECK
+#
+###################################################################################
+
+mul y1 grid_width y1_offset
+mul y2 grid_width y2_offset
+
+###########################################################
+# verify that (x1, y1) is on the inside of the perimeter
+
+@setpattern top_corner_direct_
+
+# first, directly check for a tile at (x1, y1)
+add y1_offset x1 PATTERN__start_offset
+add PATTERN__start_offset:0 grid_rb_offset PATTERN__read_ptr
+jf PATTERN__read_ptr:~0 &goto_next_j
+
+@cpy 1 empty_is_green
+
+###########################################################
+# check TOP line: (x1, y1) to (x2, y1)
+
+@setpattern top_line_
+
+add y1_offset:0 x1 PATTERN__start_offset
+
+@cpy x1 current_x
+
+add x2 1 final_x
+add PATTERN__start_offset:0 grid_rb_offset:0 PATTERN__grid_read_ptr
+
+PATTERN__line_loop:
+@cpy PATTERN__grid_read_ptr:~0 grid_value
+
+jf grid_value:0 &PATTERN__is_empty
+
+# gap check
+jt empty_is_green &PATTERN__not_gap
+@reference PATTERN__continue_after_gap
+PATTERN__continue_after_gap:
+# see if the compressed (current_x-1) is adjacent to compressed (current_x)
+# if it is NOT, we skipped over a gap
+add x_map_start current_x PATTERN__read_xb_ptr
+add PATTERN__read_xb_ptr -1 PATTERN__read_xa_ptr
+add PATTERN__read_xa_ptr:*0 1 expected_coordinate
+@jne expected_coordinate:0 PATTERN__read_xb_ptr:*0 &goto_next_j
+PATTERN__not_gap:
+
+
+lt 0 grid_value empty_is_green
+@jmp &PATTERN__line_cont
+
+PATTERN__is_empty:
+# if empty_is_green is 0, this is not a valid rectangle for part 2
+jf empty_is_green:0 &goto_next_j
+PATTERN__line_cont:
+
+add current_x 1 current_x
+add PATTERN__grid_read_ptr 1 PATTERN__grid_read_ptr
+@jne current_x:0 final_x:0 &PATTERN__line_loop
+
+###########################################################
+# check LEFT line: (x1, y1) to (x1, y2)
+
+@setpattern left_line_
+
+add y1_offset x1 PATTERN__start_offset
+
+@cpy 1 empty_is_green
+@cpy y1 current_y
+add y2 1 final_y
+add PATTERN__start_offset:0 grid_rb_offset PATTERN__grid_read_ptr
+
+PATTERN__line_loop:
+@cpy PATTERN__grid_read_ptr:~0 grid_value
+
+jf grid_value &PATTERN__is_empty
+
+# gap check
+jt empty_is_green &PATTERN__not_gap
+@reference PATTERN__continue_after_gap
+PATTERN__continue_after_gap:
+# see if the compressed (current_y-1) is adjacent to compressed (current_y)
+# if it is NOT, we skipped over a gap
+add y_map_start current_y PATTERN__read_yb_ptr
+add PATTERN__read_yb_ptr -1 PATTERN__read_ya_ptr
+add PATTERN__read_ya_ptr:*0 1 expected_coordinate
+@jne expected_coordinate PATTERN__read_yb_ptr:*0 &goto_next_j
+PATTERN__not_gap:
+
+lt 0 grid_value empty_is_green
+@jmp &PATTERN__line_cont
+
+PATTERN__is_empty:
+# if empty_is_green is 0, this is not a valid rectangle for part 2
+jf empty_is_green &goto_next_j
+PATTERN__line_cont:
+
+add current_y 1 current_y
+add PATTERN__grid_read_ptr grid_width PATTERN__grid_read_ptr
+@jne current_y:0 final_y:0 &PATTERN__line_loop
+
+# at this point, we have verified that both (x2, y1) and (x1, y2) are are inside the polygon
+# therefore, we can (must, actually) initialize empty_is_green to 1 for the BOTTOM and RIGHT lines.
+
+###########################################################
+# check BOTTOM line: (x1, y2) to (x2, y2)
+
+@setpattern bottom_line_
+
+add y2_offset:0 x1 PATTERN__start_offset
+
+@cpy 1 empty_is_green
+@cpy x1 current_x
+add PATTERN__start_offset:0 grid_rb_offset PATTERN__grid_read_ptr
+
+PATTERN__line_loop:
+@cpy PATTERN__grid_read_ptr:~0 grid_value
+
+jf grid_value &PATTERN__is_empty
+
+# gap check
+jt empty_is_green &PATTERN__not_gap
+@reference PATTERN__continue_after_gap
+PATTERN__continue_after_gap:
+# see if the compressed (current_x-1) is adjacent to compressed (current_x)
+# if it is NOT, we skipped over a gap
+add x_map_start current_x PATTERN__read_xb_ptr
+add PATTERN__read_xb_ptr -1 PATTERN__read_xa_ptr
+add PATTERN__read_xa_ptr:*0 1 expected_coordinate
+@jne expected_coordinate PATTERN__read_xb_ptr:*0 &goto_next_j
+PATTERN__not_gap:
+
+lt 0 grid_value empty_is_green
+@jmp &PATTERN__line_cont
+
+PATTERN__is_empty:
+# if empty_is_green is 0, this is not a valid rectangle for part 2
+jf empty_is_green &goto_next_j
+PATTERN__line_cont:
+
+add current_x 1 current_x
+add PATTERN__grid_read_ptr 1 PATTERN__grid_read_ptr
+@jne current_x final_x &PATTERN__line_loop
+
+###########################################################
+# check RIGHT line: (x2, y1) to (x2, y2)
+
+@setpattern right_line_
+
+add y1_offset x2 PATTERN__start_offset
+
+@cpy 1 empty_is_green
+@cpy y1 current_y
+add PATTERN__start_offset:0 grid_rb_offset PATTERN__grid_read_ptr
+
+PATTERN__line_loop:
+@cpy PATTERN__grid_read_ptr:~0 grid_value
+
+jf grid_value &PATTERN__is_empty
+
+# gap check
+jt empty_is_green &PATTERN__not_gap
+@reference PATTERN__continue_after_gap
+PATTERN__continue_after_gap:
+# see if the compressed (current_y-1) is adjacent to compressed (current_y)
+# if it is NOT, we skipped over a gap
+add y_map_start current_y PATTERN__read_yb_ptr
+add PATTERN__read_yb_ptr -1 PATTERN__read_ya_ptr
+add PATTERN__read_ya_ptr:*0 1 expected_coordinate
+@jne expected_coordinate PATTERN__read_yb_ptr:*0 &goto_next_j
+PATTERN__not_gap:
+
+lt 0 grid_value empty_is_green
+@jmp &PATTERN__line_cont
+
+PATTERN__is_empty:
+# if empty_is_green is 0, this is not a valid rectangle for part 2
+jf empty_is_green &goto_next_j
+PATTERN__line_cont:
+
+add current_y 1 current_y
+add PATTERN__grid_read_ptr grid_width PATTERN__grid_read_ptr
+@jne current_y final_y &PATTERN__line_loop
+
+# end of checking
+@clearpattern
+
+# if we reach this point, we have a new best answer for part 2
+@cpy rect_area part2_answer
+
+###########################################################
+#
+# done checking the current pair of coordinates. go to the next (x2, y2).
+
+goto_next_j:
+
+# advance our pointer by 2
+rbo 2
+add grid_rb_offset -2 grid_rb_offset
+
+add loop2_left -1 loop2_left
+jt loop2_left:0 &next_j
+
+# that's the last j for this i, then
+# go to the next i
+
+# rewind the relative base
+
+rbo j_end_rbo_adj:0
+mul j_end_rbo_adj -1 j_end_grid_adj
+add grid_rb_offset j_end_grid_adj:0 grid_rb_offset
+
+add loop1_left -1 loop1_left
+jt loop1_left:0 &next_i
+
+# that's the end!
+@endfn
+
+rbo heap_size
+# move the rb way out to the end of the heap
+# this actually goes out *past* the end of the heap, but that doesn't matter,
+# because we won't be using it again.
+# (we could technically skip doing even that, but I don't want to trash my heap
+#  before exiting)
+
+#############################################################################
+#
+# output answers here
+
+
+#output_answers_and_halt:
+
+@cpy &str_part1_answer_fmt ~1
+@cpy part1_answer ~2
+@call &printf
+
+@cpy &str_part2_answer_fmt ~1
+@cpy part2_answer ~2
+@call &printf
+
+hlt
+
+### error paths for main body
+
+too_few_tiles:
+@cpy &str_too_few_tiles ~1
+@jmp &print_error_and_die
+
+attempt_to_pop_from_empty_heap:
+@cpy &str_attempt_to_pop_from_empty_heap ~1
+@jmp &print_error_and_die
+
+#                                                 ~2 ~3   ~4       ~5  ~6  ~7
+#@str str_invalid_tile_pair: "Invalid tile pair: #%d (%d, %d) and #%d (%d, %d)\n";
+
+invalid_tile_pair_seq:
+rbo 2
+@cpy &str_invalid_tile_pair ~1
+@cpy red_tiles_count ~2
+@cpy ~-4 ~3
+@cpy ~-3 ~4
+add red_tiles_count 1 ~5
+@cpy ~-2 ~6
+@cpy ~-3 ~7
+@jmp &printf_error_and_die
+
+invalid_tile_pair_ends:
+rbo 2
+@cpy &str_invalid_tile_pair ~1
+@cpy red_tiles_count ~2
+@cpy ~-4 ~3
+@cpy ~-3 ~4
+@cpy 0 ~5
+@cpy first_red_x ~6
+@cpy first_red_y ~7
+@jmp &printf_error_and_die
+
+
+################################
+# Null compression: compress_x(x) = x - min_input_x, compress_y(y) = max_input_y - min_input_y - y
+
+@fn naked null_compression() global(red_tiles, red_tiles_count, x_map_start, first_red_x, first_red_y, grid_width, grid_height, max_input_x, max_input_y, min_input_x, min_input_y, tile_list_size, top_tile_index)
+
+# this function needs to perform all the same work the compression code would do:
+#
+# - make sure that Y has been inverted for all tile coordinates
+# - populate the dummy tile at the end of the red_tiles list
+# - initialize top_tile_index
+# - initialize grid_width and grid_height
+# - populate the x_map and y_map tables
+# - initialize y_map_start and grid_start
+
+# rb is currently at x_map_start
+# adjust it backwards to &red_tiles[0] 
+mul x_map_start -1 rbo_adjust
+add rbo_adjust &red_tiles rbo_adjust
+rbo rbo_adjust:0
+
+@cpy 0 current_tile_index
+#@cpy 0 top_tile_index_was_set
+
+@cpy red_tiles_count red_tiles_left
+
+mul min_input_x -1 x_offset
+mul min_input_y -1 y_offset
+add x_offset:0 max_input_x grid_width
+add y_offset:0 max_input_y grid_height
+add grid_width 1 grid_width
+add grid_height 1 grid_height
+# I need to compute (max_input_y - (Y - min_input_y))
+# that's ((max_input_y + min_input_y) - Y)
+#add min_input_y max_input_y y_offset
+# ^^^ the above is WRONG
+# I'm not sure why, but it's actually simply (max_input_y - Y) to map the Y coordinate into the
+# correct range.
+#@cpy max_input_y y_offset
+
+
+adjust_next_tile:
+jt top_tile_index_was_set:0 &dont_set_top_tile_index
+@jne ~1 min_input_y &dont_set_top_tile_index
+@cpy 1 top_tile_index_was_set
+@cpy current_tile_index:0 top_tile_index
+dont_set_top_tile_index:
+add current_tile_index 2 current_tile_index
+
+add ~0 x_offset ~0
+#mul ~1 -1 y_inv
+#add y_inv:0 y_offset ~1
+add ~1 y_offset ~1
+rbo 2
+add red_tiles_left -1 red_tiles_left
+jt red_tiles_left:0 &adjust_next_tile
+
+@cpy first_red_x ~0
+@cpy first_red_y ~1
+rbo 2
+rbo tile_list_size
+
+@cpy grid_width width_left
+write_next_x_coordinate:
+@cpy x_counter:0 ~0
+rbo 1
+add x_counter 1 x_counter
+add width_left -1 width_left
+jt width_left:0 &write_next_x_coordinate
+
+@cpy grid_height height_left
+write_next_y_coordinate:
+@cpy y_counter:0 ~0
+rbo 1
+add y_counter 1 y_counter
+add height_left -1 height_left
+jt height_left:0 &write_next_y_coordinate
+
+@endfn
+add x_map_start grid_width y_map_start
+add y_map_start grid_height grid_start
+add heap_size grid_width heap_size
+add heap_size grid_height heap_size
+@jmp &compression_done
+
+
+# min_heap_x_coordinate(item1, item2, unused, unused)
+# return 1 if item2 MUST be popped before item1
+@fn 1 min_heap_x_coordinate(item1, item2) local(item1_x, item2_x) global(red_tiles)
+
+# return 1 if:
+#	 item2.x < item1.x
+# else return 0
+
+add &red_tiles item1 read_x1
+add &red_tiles item2 read_x2
+@cpy read_x1:*0 item1_x
+@cpy read_x2:*0 item2_x
+
+lt item2_x item1_x return0
+
+@endfn
+
+# min_heap_y_coordinate(item1, item2, unused, unused)
+# return 1 if item2 MUST be popped before item1
+@fn 1 min_heap_y_coordinate(item1, item2) local(item1_y, item2_y, red_tiles_y) global(red_tiles)
+
+# return 1 if:
+#	 item2.y < item1.y, -or-
+#    item2.y == item1.y AND item2 < item1
+# else return 0
+
+add &red_tiles 1 red_tiles_y
+
+add red_tiles_y item1 read_y1
+add red_tiles_y item2 read_y2
+@cpy read_y1:*0 item1_y
+@cpy read_y2:*0 item2_y
+# if item2.y < item1.y then return 1
+lt item2_y item1_y return0
+
+# NOTE: after this point, item1 has been *trashed*
+# TODO: figure out a way to have the compiler help me with that shit. i've been bitten way too
+# many times.
+
+# return 1 if item2.y < item1.y
+jt return0 &auto__return
+# return 0 if item2.y > item1.y
+@jne item2_y item1_y &auto__return
+# okay, item2.y == item1.y
+# return 1 if item2 < item1, else 0
+# note that item1 is no longer usable, so compare their read pointers instead
+lt read_y2 read_y1 return0
+@endfn
+
+#############################################################################
+#
+# heap1w_pop(array, count, &compare_function, compare_arg)
+#
+# Pop the top element of an heap where each element is 1 word.
+#
+# - array: Address of start of array
+# - count: number of elements in the array
+# - compare_function: the address of a function callable using @call form
+# - compare_arg:      A value to be passed to &compare_function
+#
+# Arguments passed to compare_function:
+#    ~1 = element 'a'
+#    ~2 = element 'b'
+#    ~3 = compare_arg
+#    ~4 = compare_arg MINUS all stack space used by heapify_1w
+#
+# compare_function should return:
+# 		1 (true)   if a is "less than" b (b must be popped before a)
+# 		0 (false)  if a >= b
+
+
+@fn naked heap1w_pop() global(attempt_to_pop_from_empty_heap)
+# if the count is zero, panic
+jf ~2 &attempt_to_pop_from_empty_heap
+# first, subtract 1 from count
+add ~2 -1 ~2
+# if there's only 1 element left in the heap, return immediately
+jf ~2 ~0
+# change ~2 from count to &array[count]
+add ~1 ~2 ~2
+
+# swap array[count] and array[count-1]
+@cpy ~2 read_end_ptr
+@cpy ~1 read_root_ptr
+@cpy ~1 write_root_ptr
+@cpy ~2 write_end_ptr
+# we can use ~6 as scratch space, as we'll overwrite it in a moment
+@cpy read_end_ptr:*0 ~6
+@cpy read_root_ptr:*0 write_end_ptr:*0
+@cpy ~6 write_root_ptr:*0
+
+@__declare_label debugbp__heap1w_pop_after_swap
+
+# assign compare_arg_rb
+@cpy ~4 ~5
+# assign root
+@cpy 0 ~6
+
+# fall through into heap1w_sift_down
+@endfn
+
+@fn 0 heap1w_sift_down(array, array_end, compare_function, compare_arg, compare_arg_rb, root)
+
+add compare_arg_rb &auto__stack_size_inv compare_arg_rb
+
+# reminders:
+# iLeftChild(idx)   = 2*idx + 1
+# iRightChild(idx)  = 2*idx + 2
+
+loop:
+mul root 2 i_child
+add i_child 1 i_child
+add array i_child:0 p_left
+# stop unless p_left < &array[count]
+@jge p_left array_end &auto__return
+add p_left 1 p_right
+@jge p_right array_end &no_right_child_or_right_not_greater
+@cpy p_left:*0 ~1
+@cpy p_right:*0 ~2
+@cpy compare_arg ~3
+@cpy compare_arg_rb ~4
+@call compare_function
+jf ~1 &no_right_child_or_right_not_greater
+add p_left 1 p_left
+add i_child 1 i_child
+no_right_child_or_right_not_greater:
+@cpy p_left p_child
+add array root p_root
+
+@cpy p_root:*0 ~1
+@cpy p_child:*0 ~2
+@cpy ~1 swap1
+@cpy ~2 swap2
+@cpy compare_arg ~3
+@cpy compare_arg_rb ~4
+@call compare_function
+jf ~1 &auto__return
+@cpy p_root p_root_write
+@cpy p_child p_child_write
+@cpy swap2:0 p_root_write:*0
+@cpy swap1:0 p_child_write:*0
+@cpy i_child root
+@jmp &loop
+
+@endfn
+
+#############################################################################
+#
+# heapify_1w(array, count, &compare_function, compare_arg)
+#
+# Convert an array of 1-word elements into a binary heap.
+#
+# - array: Address of start of array
+# - count: number of elements in the array
+# - compare_function: the address of a function callable using @call form
+# - compare_arg:      A value to be passed to &compare_function
+#
+# Arguments passed to compare_function:
+#    ~1 = element 'a'
+#    ~2 = element 'b'
+#    ~3 = compare_arg
+#    ~4 = compare_arg MINUS all stack space used by heapify_1w
+#
+# compare_function should return:
+# 		1 (true)   if a is "less than" b (b must be popped before a)
+# 		0 (false)  if a >= b
+
+@fn 0 heapify_1w(array, count, compare_function, compare_arg) local(start, compare_arg_rb) global(divrem_positive, heap1w_sift_down)
+
+# an array with fewer than 2 elements is always sorted
+@jlt count 2 &auto__return
+add count -1 ~1
+@cpy 2 ~2
+# note that this relies on divrem_positive returning 0 when its first argument is negative
+@call &divrem_positive
+add ~1 1 start
+
+# note that we're guaranteed that start >= 2
+# that's because count >= 2, which means (count/2) >= 1, and we added 1 to that
+
+add compare_arg &auto__stack_size_inv compare_arg_rb
+
+sift_down_loop:
+jf start &auto__return
+add start -1 start
+@cpy array ~1
+add array count ~2
+@cpy compare_function ~3
+@cpy compare_arg ~4
+@cpy compare_arg_rb ~5
+@cpy start ~6
+# tail-call sift_down
+@cpy &sift_down_loop ~0
+@jmp &heap1w_sift_down
+#jt start &sift_down_loop
+
+# https://en.wikipedia.org/wiki/Heapsort
+# thanks to @atom on the Discord
+
+@endfn
+
+############################################################################################
+# math.lib
+# version 20251205-0001
+
+###############################################################################
+#
+# divrem_positive(a, b)
+#
+# PRECONDITION: b > 1
+#
+# (b=1 is also valid, but that will just spend a lot of unnecessary time to return (a, 0))
+#
+# Upon return:
+#       ~1 is q
+#		~2 is r
+#
+# where
+#	q is the smallest nonnegative integer such that a = qb + r
+#
+# if a >= 0, this means ~1 is floor(a / b) and ~2 is (a % b)
+# if a < 0, q=0 and r=a
+#
+# Version 2
+#   This version directly manipulates the relative base instead of making recursive calls.
+
+@fn 2 divrem_positive(a, b)
+
+@cpy a r
+@cpy 0 q
+
+# a > b
+# push b onto the stack
+@cpy b ~0
+@cpy 1 push_count
+@jle a b &pop_loop_start
+
+# push 2b, 4b, 8b, ... onto the stack until it's greater 
+double_b:
+mul ~0 2 ~1
+rbo 1
+add push_count 1 push_count
+@jlt ~0 r &double_b
+
+# okay, ~0 is (2^n)b for the smallest nonnegative integer n such that (2^n)b >= a
+# push_count is the one more than the number of times we did 'rbo 1'
+
+pop_loop:
+mul q 2 q
+pop_loop_start:
+@jlt r ~0 &bit_clear
+mul ~0 -1 ~0
+add r ~0 r
+add q 1 q
+bit_clear:
+rbo -1
+add push_count -1 push_count
+jt push_count:0 &pop_loop
+
+# the above loop executes "rbo -1" exactly one time too many
+# and I can't figure out an elegant way to avoid that
+rbo 1
+
+@cpy q:0 return0
+@cpy r:0 return1
+
+@endfn
+
+############################################################################################
+# memset.lib
+# version 20251205-0001
+
+###############################################################################
+#
+# memset(address, value, count)
+#
+# Just like the C standard function.
+#
+# NOTE: if count < 0, will loop forever
+#
+# 4 instructions per word. not very efficient.
+
+# @fn 0 memset(dest, ch, count)
+
+# jf count &skip
+# @cpy dest rdi
+# loop:
+# @cpy ch rdi:*0
+# add rdi 1 rdi
+# add count -1 count
+# jt count &loop
+# skip:
+
+# @endfn
+
+############################################################################################
+# input.lib
+# version 20251227-0001
+
+#############################################################################
+#
+# read_nonnegative_integer_checked(expected_terminator, empty_mode, newline_mode, eof_mode)
+#
+# Read a nonnegative integer from stdin, doing additional validation
+#
+# expected_terminator (~1): the character that is expected to terminate the number
+# empty_mode          (~2): behavior if no characters are read
+#       0 = zero-length input is invalid. even if the expected terminator is read, it counts as unexpected.
+#       1 = zero-length input is valid, the returned value is zero
+# newline_mode        (~2): behavior if terminated by '\n'
+#       set to -1 if expected_terminator is '\n' and eof_mode is -1
+#       0 = newline is invalid and will be treated as any other invalid character
+#       1 = newline is valid if and only if it was the only character read
+#      -1 = newline is a valid alternate to expected_terminator
+# eof_mode            (~3): behavior if terminated by EOF
+#      -1 = treat EOF as newline
+#       0 = EOF is invalid and will generate an "unexpected EOF"
+#       1 = EOF is valid if it was read immediately
+#
+# Return values:
+#       ~1 = the value that was read (or 0 if no digits were read, but the read was still considered successful)
+#       ~2 = 1 if a value was successfully read
+#            0 if a blank input was successfully read
+#           -1 if a value was successfully read and terminated by a newline instead of expected_terminator
+#           -2 if a value was successfully read and terminated by an EOF instead of expected_terminator
+#
+# This is really complicated, so I'm making a tool to help me test it.
+#
+# | expected_terminator | empty_mode | newline_mode | eof_mode | input            | outcome
+# |---------------------|------------|--------------|----------|------------------|---------------------------
+
+@fn 2 read_nonnegative_integer_checked(expected_terminator, empty_mode, newline_mode, eof_mode) local(status) global(read_nonnegative_integer, report_unexpected_character, report_unexpected_eof)
+
+@call &read_nonnegative_integer
+# set status to 1 if we read a value, else 0
+lt 0 ~2 status
+@jeq ~3 expected_terminator &got_expected_terminator
+@jeq ~3 '\n' &got_newline
+jf ~3 &got_eof
+# we didn't get the expected terminator, a newline, *or* EOF. bail.
+@jmp &report_unexpected_character
+
+got_expected_terminator:
+# if empty_mode is 1, we always accept the expected terminator
+jt empty_mode &exit_fn
+# if empty_mode is 0, we accept only if we read a value
+jt status &exit_fn
+@jmp &report_unexpected_character
+
+got_eof:
+# if eof_mode is 0, eof is unexpected
+jf eof_mode &report_unexpected_eof
+# if eof_mode is -1, eof is treated like a newline
+@jlt eof_mode 0 &got_newline
+# if eof_mode is 1, eof is valid only if we didn't read any digits
+jf status &exit_fn
+@jmp &report_unexpected_eof
+
+got_newline:
+# if newline_mode is 0, treat it as an invalid character
+jf newline_mode &report_unexpected_character
+jf status &no_adjust_status
+eq ~3 0 actually_eof
+add status actually_eof:0 status
+mul status -1 status
+no_adjust_status:
+# if newline_mode is -1, it acts like expected_terminator
+@jlt newline_mode 0 &got_expected_terminator
+# otherwise, newline_mode is 1, and it's only valid when we didn't read any digits
+jf status &exit_fn
+@jmp &report_unexpected_character
+
+exit_fn:
+@cpy ~1 return0
+@cpy status return1
+
+@endfn
+
+report_unexpected_character:
+# having this jump makes eof_mode easier to implement
+jf ~3 &report_unexpected_eof
+
+@cpy &str_unexpected_character_in_input_fmt ~1
+@cpy ~3 ~2
+add input_line 1 ~3
+add input_column 1 ~4
+@jmp &printf_error_and_die
+
+report_unexpected_eof:
+@cpy &str_unexpected_end_of_file_fmt ~1
+add input_line 1 ~2
+add input_column 1 ~3
+@jmp &printf_error_and_die
+
+############################################################################################
+# input.lib
+# version 20251205-0001
+
+# 0-based line and column number for stdin
+@raw pending_newline: 0 input_line: 0 input_column: 0
+
+#############################################################################
+#
+# Read a nonnegative integer from input.
+#
+# Return values:
+#    ~1 - the value that was read, -or- 0 if no digits were read
+#    ~2 - the number of digits that were read
+#    ~3 - the (non-digit) input value that terminated the read, or 0 if the input was terminated by an EOF indicator
+#
+# Revision history:
+# - Version 20251227-0001:
+#   Most inputs are digits, so check for >= '0' FIRST.
+#   This increases the size of the program slightly, but it reduces the number of instructions that
+#   must be executed for each digit by 6.  That adds up a *lot*
+# - Initial version: 
+#    I didn't think to keep track of it
+
+@fn 3 read_nonnegative_integer() local(acc, digit_count, ch) global(pending_newline, input_line, input_column)
+
+@cpy 0 acc
+@cpy 0 digit_count
+
+# if the last read terminated in '\n', increment the line number and reset the column
+jf pending_newline &read_loop
+@cpy 0 pending_newline
+add input_line 1 input_line
+@cpy 0 input_column
+
+read_loop:
+in ch
+@jge ch '0' &probably_digit
+@jeq ch '\r' &read_loop
+@jle ch 4 &handle_eof
+@jeq ch 26 &handle_eof
+add input_column 1 input_column
+@jmp &terminate
+probably_digit:
+add input_column 1 input_column
+@jgt ch '9' &terminate
+add digit_count 1 digit_count
+add ch -'0' ch
+mul acc 10 acc
+add acc ch acc
+@jmp &read_loop
+
+handle_eof:
+@cpy 0 ch
+
+terminate:
+# if we stopped because of a newline, set things up so we'll increment the line number and reset the column number on the next read
+# not only is doing it that way slightly easier, it means that error messages caused by an unexpected newline won't be reported
+# against the wrong line
+eq ch '\n' pending_newline
+
+# with no parameters:
+# 	acc and return0 are aliased
+#   digit_count and return1 are aliased
+#   ch and return2 are aliased
+#
+# also, in retrospect, topaz should've made them return1, return2, return3 -- that way their names would match the ~1 ~2 ~3 you use
+# in the code.
+
+@reference return0 return1 return2
+
+@endfn
+
+############################################################################################
+# output.lib
+# version 20251205-0001
+
+############################################################################################
+#
+#  output_integer(value)
+#
+# in ASCII mode, prints value in ASCII
+# in raw mode, outputs value directly
+# if raw mode is enabled and use_dle is on, raw values are prefixed with 0x10 (DLE)
+
+@fn 0 output_integer(value) global(print_decimal, raw_output, use_dle)
+
+jt raw_output &do_raw_output
+# this works ONLY when both routines have the same number of locals+parameters
+# UPDATE: tail-call doesn't actually work correctly because the relative base register (i.e. stack pointer) isn't adjusted correctly.
+@cpy value ~1
+@cpy &no_raw_output ~0
+@jmp &print_decimal
+
+do_raw_output:
+
+jf use_dle &no_dle
+out 16
+no_dle:
+out value
+
+no_raw_output:
+
+@endfn
+
+# print possibly-negative decimal number
+print_decimal:
+lt ~1 0 _print_decimal_is_negative
+jf _print_decimal_is_negative:0 &print_nonnegative_decimal
+out '-'
+mul ~1 -1 ~1
+# fall through to print_nonnegative_decimal
+
+# print nonnegative decimal number (negative numbers will not be printed)
+# changing this to support negatives would be easy but I don't need it
+@fn 0 print_nonnegative_decimal(n) global(print_next_decimal_digit)
+jf n &print_zero
+@cpy n ~1
+@cpy 1 ~2
+@call &print_next_decimal_digit
+@jmp &exitfun
+print_zero: out '0'
+exitfun:
+@endfn
+
+@fn 1 print_next_decimal_digit(n, mask) local(dig, negmask)
+
+# PRECONDITIONS: n >= mask, mask is a power of 10
+# POSTCONDITIONS: upon return, ~1 has all powers of 10 greater than mask removed
+
+@cpy n ~1
+@jlt n mask &exitfn
+
+mul mask 10 ~2
+@call &print_next_decimal_digit
+@cpy ~1 n
+
+mul mask -1 negmask
+@cpy '0' dig
+compute_digit:
+@jlt n mask &done_compute_digit
+add dig 1 dig
+add n negmask n
+@jmp &compute_digit
+done_compute_digit:
+
+out dig
+
+exitfn:
+@cpy n return0
+@endfn
+
+
+# GOTCHA: return parameters and incoming arguments share stack space, so be careful
+
+#########################################################
+#
+# print_string(&str)
+
+@fn 0 print_string(string_address) local(strlen, tmpchar)
+
+@cpy string_address read_strlen
+add read_strlen:*0 0 strlen
+add 1 string_address string_reader
+message_print_loop:
+add string_reader:*0 0 tmpchar
+add string_reader 1 string_reader
+out tmpchar
+add strlen -1 strlen
+jt strlen &message_print_loop
+
+@endfn
+
+#########################################################
+#
+# printf(&str, ...)
+#
+# TODO: experiment with using NUL-terminated strings instead.
+
+@fn 0 printf(format_string, arg0, arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8, arg9) global(output_integer)
+
+@reference arg1 arg2 arg3 arg4 arg5 arg6 arg7 arg8 arg9
+@cpy 0 arg_shift
+@cpy format_string read_length_ptr
+@cpy read_length_ptr:*0 format_string_length
+jf format_string_length:0 &exit_fn
+add format_string 1 read_string_ptr
+
+process_next_char:
+@cpy read_string_ptr:*0 next_char
+add read_string_ptr 1 read_string_ptr
+add format_string_length -1 format_string_length
+@jeq next_char '%' &process_format
+out next_char:0
+@jmp &advance_loop
+process_format:
+@cpy read_string_ptr read_string_ptr2
+@cpy read_string_ptr2:*0 next_char
+add read_string_ptr 1 read_string_ptr
+add format_string_length -1 format_string_length
+@jeq next_char '%' &format_literal_percent
+@jeq next_char 'c' &format_char
+@jeq next_char 'C' &format_printable_char
+# assume %d by default
+
+format_integer:
+@cpy arg0 ~1
+@call &output_integer
+rbo 1
+add arg_shift -1 arg_shift
+@jmp &advance_loop
+
+format_literal_percent:
+out '%'
+@jmp &advance_loop
+
+format_printable_char:
+@jge arg0 32 &format_char
+out '\\'
+@jeq arg0 '\n' &escape_n
+@jeq arg0 '\r' &escape_r
+@jeq arg0 0 &escape_0
+@jeq arg0 '\t' &escape_t
+out '\\'
+out 'd'
+@jmp &format_integer
+escape_n:
+@cpy 'n' arg0
+@jmp &format_char
+escape_r:
+@cpy 'r' arg0
+@jmp &format_char
+escape_0:
+@cpy '0' arg0
+@jmp &format_char
+escape_t:
+@cpy 't' arg0
+@jmp &format_char
+
+format_char:
+out arg0
+rbo 1
+add arg_shift -1 arg_shift
+@jmp &advance_loop
+
+advance_loop:
+jt format_string_length &process_next_char
+
+exit_fn:
+rbo arg_shift:0
+@endfn
+
+#####################################
+#
+# error routines. call with @jmp, not @call (well, @call is fine, but it's a waste)
+
+####################################
+#
+# assertion_failed()
+#
+# Print out "Error: Assertion failed on line <line number>" and halt.
+
+assertion_failed:
+@cpy &str_assertion_failed_fmt ~1
+@cpy assertion_failed_line:0 ~2
+@jmp &printf_error_and_die
+
+#####################################
+#
+# print_error_and_die(&str_message)
+#
+# Outputs "Error: " followed by the supplied message, then halts.
+#
+
+print_error_and_die:
+rbo 2
+@cpy &str_error ~1
+@call &print_string
+rbo -2
+# fall through to print_and_die
+@reference print_and_die
+
+#####################################
+#
+# print_and_die(&str_message)
+#
+# Outputs the supplied message, then halts.
+
+print_and_die:
+@call &print_string
+hlt
+
+#####################################
+#
+# printf_error_and_die(&str_format, ...)
+#
+# Outputs "Error: " followed by the formatted message, then halts.
+
+printf_error_and_die:
+# move the stack pointer far, far away so we don't trash the incoming parameters
+rbo 100
+@cpy &str_error ~1
+@call &print_string
+rbo -100
+# fall through to print_and_die
+@reference printf_and_die
+
+#####################################
+#
+# printf_and_die(&str_format, ...)
+#
+# Outputs the formatted message, then halts.
+
+printf_and_die:
+@call &printf
+hlt
+
+###################################################################################
+# Strings
+
+@str str_error: "Error: "
+@str str_too_few_tiles: "Too few tiles (need at least 4)\n"
+@str str_invalid_tile_pair: "Invalid tile pair: #%d (%d, %d) and #%d (%d, %d)\n"
+@str str_unexpected_character_in_input_fmt: "Unexpected character '%C' in input at line %d, column %d\n"
+@str str_unexpected_end_of_file_fmt: "Unexpected end-of-file in input at line %d, column %d\n"
+@str str_assertion_failed_fmt: "Assertion failed on line %d\n"
+@str str_part1_answer_fmt: "Part 1: %d\n"
+@str str_part2_answer_fmt: "Part 2: %d\n"
+@str str_attempt_to_pop_from_empty_heap: "heap1w_pop: heap is empty\n"
+
+###################################################################################
+
+@raw part1_answer:0 part2_answer:0
+
+@raw heap_size_inv: 0
+
+# size of red_tiles array
+@raw red_tiles_size: 0
+# negative of size of red_tiles array
+@raw red_tiles_size_inv: 0
+# number of red tiles
+@raw red_tiles_count: 0
+# tile_list_start = address of tile_list heap (array)
+@raw tile_list_start: 0
+# tile_list_count = number of elements in tile_list
+@raw tile_list_count: 0
+# tile_list_size = size of tile_list heap (array)
+@raw tile_list_size:  0
+# x_map_start = address of x_map   (size is grid_width)
+@raw x_map_start: 0
+# y_map_start = address of y_map   (size is grid_height)
+@raw y_map_start: 0
+# index of the first tile (in input order) with a topmost Y coordinate
+#		Invariant: After this variable has been initialized,
+#		red_tiles[top_tile_index].y == red_tiles[top_tile_index+1].y
+#		red_tiles[top_tile_index].y != red_tiles[top_tile_index+1].y
+#		(which is equal to 0 after y-compression is performed)
+#
+#		if red_tiles[top_tile_index].x < red_tiles[top_tile_index+1].x,
+#			the perimeter is drawn counterclockwise.
+#		if red_tiles[top_tile_index].x > red_tiles[top_tile_index+1].x,
+#			the perimeter is drawn clockwise
+@raw top_tile_index: 0
+# width of 2D grid, negative width of 2D grid
+@raw grid_width:  0
+@raw grid_height: 0
+@raw grid_size:   0 
+# grid_start = address of 2D grid
+@raw grid_start: 0
+@raw gridh_start: 0
+@raw gridv_start: 0
+
+@raw perimeter_orientation: 0
+
+@raw final_dx: 0 final_dy: 0
+@raw min_input_x: 0 max_input_x: 0 min_input_y: 0 max_input_y: 0
+
+red_tiles:
+@raw first_red_x: 0 first_red_y: 0
+# red_tiles:
+# sizeof(entry)=2  x, y
+# has one more entry than the input; the last entry is a copy of the first entry,
+# to simplify other logic
+
+# tile sort heap:
+# sizeof(entry) = 1    offset (2 * index) from start of red_tiles
+
+# x-map:
+# sizeof(entry) = 1    x-map[x] is the decompressed X-coordinate for compressed X
+# y-map:
+# sizeof(entry) = 1    y-map[y] is the decompressed Y-coordinate for compressed Y
+#
+# 2D grid:
+# sizeof(entry) = 1		entry[row][col]
+#						 0 = non-red/green OR untested
+#						 1 = red/green tile
+#
+# and then after that is the stack.

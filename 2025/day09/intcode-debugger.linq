@@ -7,18 +7,21 @@
   <Namespace>System.Globalization</Namespace>
 </Query>
 
-const bool WRITE_EXECLOG = false;
+const bool WRITE_EXECLOG = true;
 const bool TRACE_INPUT = true;
 const bool WRITE_OUTPUT_LOG = false;
 
 const string OUTPUT_LOG_NAME = "output.txt";
 const string INPUT_FILE_PATH =
-	//"example.txt"
-	"../../puzzle_inputs/2025-09.txt"
+	"example.txt"
+	//"../../puzzle_inputs/2025-09.txt"
+	//"hostile-testcase-1.txt"
+	//"hostile-testcase-2.txt"
+	
 	;
 const int INSTRUCTION_LIMIT =
 	//1_000_000_000
-	50_000_000
+	100_000_000
 	;
 static (int address, memval_t value)[] memory_patches = {
 	//(1, 10), // 1=part1_limit.  for the example, part 1 limit is 10, not 1000
@@ -46,6 +49,20 @@ void Main()
 		bpout.WriteLine("ASSERTION FAILURE ON LINE {0}", ReadVariable(c, "assertion_failed_line"));
 		bpout.WriteLine();
 		ForceHalt = true;
+	});
+
+	cpu.AddBreakpoint("fn_compute_gridh__write_column", c =>
+	{
+		using var bpout = new BreakpointOutput();
+		var write_address = c.Toc;
+		var grid_start = (int)ReadVariable(c, "grid_start");
+		var grid_width = (int)ReadVariable(c, "grid_width");
+		var grid_offset = write_address - grid_start;
+		var run_length = ReadVariable(c, "fn_compute_gridh__run_length");
+		bpout.WriteLine("Writing {0} to grid row={1}, col={2}",
+				run_length,
+				grid_offset / grid_width,
+				grid_offset % grid_width);
 	});
 
 	if (false) cpu.AddBreakpoint("fn_compute_answer__next_j", c =>
@@ -653,6 +670,7 @@ IntcodeCpu RunUntilHalt(IntcodeCpu cpu, bool print_exectime_info = true, int ins
 	}
 	if (print_exectime_info)
 	{
+		cpu.Toc.Dump("Final RB");
 		instrcount.Dump("Number of instructions executed");
 		_instructionHitCount.OrderBy(x => x.Key).Select(x => new { pc = x.Key, pc_desc = DescribeAddress(x.Key, cpu.Toc), count = x.Value.Value })
 			.Dump("PC flamegraph", collapseTo: 0);
