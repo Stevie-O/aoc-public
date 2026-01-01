@@ -51,7 +51,7 @@ void Main()
 		ForceHalt = true;
 	});
 
-	cpu.AddBreakpoint("fn_compute_gridh__write_column", c =>
+	if (false) cpu.AddBreakpoint("fn_compute_gridh__write_run_length", c =>
 	{
 		using var bpout = new BreakpointOutput();
 		var write_address = c.Toc;
@@ -59,7 +59,21 @@ void Main()
 		var grid_width = (int)ReadVariable(c, "grid_width");
 		var grid_offset = write_address - grid_start;
 		var run_length = ReadVariable(c, "fn_compute_gridh__run_length");
-		bpout.WriteLine("Writing {0} to grid row={1}, col={2}",
+		bpout.WriteLine("Writing {0} to gridh row={1}, col={2}",
+				run_length,
+				grid_offset / grid_width,
+				grid_offset % grid_width);
+	});
+
+	if (false) cpu.AddBreakpoint("fn_compute_gridv__write_run_length", c =>
+	{
+		using var bpout = new BreakpointOutput();
+		var write_address = c.Toc;
+		var grid_start = (int)ReadVariable(c, "grid_start");
+		var grid_width = (int)ReadVariable(c, "grid_width");
+		var grid_offset = write_address - grid_start;
+		var run_length = ReadVariable(c, "fn_compute_gridv__run_length");
+		bpout.WriteLine("Writing {0} to gridv row={1}, col={2}",
 				run_length,
 				grid_offset / grid_width,
 				grid_offset % grid_width);

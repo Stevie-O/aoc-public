@@ -370,6 +370,7 @@ add tile_list_start  1 write_last_entry_y
 
 add y_map_start grid_height grid_start
 mul grid_height grid_width grid_size
+mul grid_size -1 grid_size_inv
 
 ###############################################################
 #
@@ -629,15 +630,14 @@ jt y_left:0 &next_row
 ###############################################################
 
 @reference compute_gridh
-@fn naked compute_gridh() global(red_tiles, grid_start, grid_width, grid_height, grid_size, gridh_start, x_map_start, assertion_failed_line, assertion_failed)
+@fn naked compute_gridh() global(red_tiles, grid_start, grid_width, grid_height, grid_size, grid_size_inv, x_map_start, assertion_failed_line, assertion_failed)
 
 # rewind to the start of the main grid
-mul grid_size -1 grid_size_inv
-rbo grid_size_inv:0
+rbo grid_size_inv
 @cpy grid_size gridh_write_ptr_1
 @cpy grid_size gridh_write_ptr_2
 mul grid_width -1 grid_width_inv
-mul grid_width 2 grid_width_x2
+mul grid_width 2 next_row_rbo
 
 # okay, we're going to process each row BACKWARDS (i.e. right-to-left)
 @cpy grid_height y_left
@@ -648,7 +648,7 @@ rbo grid_width_inv:0
 next_row:
 # we need to move TWO rows forward, because we need to point to the end of the current row,
 # but we're currently pointed at the end of the row before the previous row
-rbo grid_width_x2:0
+rbo next_row_rbo:0
 # handle the rightmost column specially
 # note that the rightmost column should NEVER be positive, since positive means that the column
 # to the right is either green or red
@@ -669,7 +669,7 @@ next_column:
 jt ~0 &not_empty
 # if grid[y][x] == 0, then  (x, y) outside the polygon.
 @cpy 0 run_length
-@jmp &write_column
+@jmp &write_run_length
 
 not_empty:
 # if grid[y][x] is positive, then the run continues
@@ -682,8 +682,8 @@ jf run_length &continuation
 # we need to check if those two edges are adjacent.
 add x_left x_map_start right_col_map_read_ptr
 add right_col_map_read_ptr 1 cur_col_map_read_ptr
-add right_col_map_read_ptr:*0 -1 expected_cur_col_map_read_ptr
-@jeq cur_col_map_read_ptr:*0 expected_cur_col_map_read_ptr:0 &continuation
+add right_col_map_read_ptr:*0 -1 expected_cur_col_map
+@jeq cur_col_map_read_ptr:*0 expected_cur_col_map:0 &continuation
 
 # okay, they aren't actually adjacent. reset the run length to 0
 @cpy 0 run_length 
@@ -691,7 +691,7 @@ add right_col_map_read_ptr:*0 -1 expected_cur_col_map_read_ptr
 continuation:
 add run_length 1 run_length
 
-write_column:
+write_run_length:
 @cpy run_length gridh_write_ptr_2:~0
 rbo -1
 add x_left -1 x_left
@@ -706,6 +706,108 @@ rbo 1
 
 @endfn
 
+# rb currently points to the start of the main grid
+
+###############################################################
+#
+# Phase 3.5: Compute vertical runs
+#
+# This is kind of expensive, but it's needed to make a proper
+# search more efficient
+#
+###############################################################
+
+@reference compute_gridv
+@fn naked compute_gridv() global(red_tiles, grid_start, grid_width, grid_height, grid_size, y_map_start, assertion_failed_line, assertion_failed)
+
+# this is quite tricky, cuz it's not simply a swap of x/y from compute_gridh
+# in compute_gridh:
+#    - each row does "rbo -1" grid_width times, for a total of (-grid_width)
+#    - to advance one row requires adding grid_width
+#    - therefore, "next_row_rbo" must be grid_width is 2 * grid_width
+# in compute_gridv:
+#    - each column does "rbo -grid_width" grid_height times, for a total of (-grid_size)
+#    - to advance one column requires adding 1
+#    - therefore, "next_col_rbo" must be grid_size + 1
+
+mul grid_width -1 up_one_row
+mul grid_size 2 gridv_write_ptr_1
+mul grid_size 2 gridv_write_ptr_2
+add grid_size 1 next_col_rbo
+
+# okay, we're going to process each column BACKWARDS (i.e bottom-to-top)
+@cpy grid_width x_left
+
+# we need to "rbo X" such that (X + next_col_rbo) is equal to (grid_size - grid_width + 1)
+# therefore, X = -grid_width
+
+# actual testing shows that I need X = -grid_width - 1, for some reason
+rbo up_one_row
+rbo -1
+
+next_column:
+# we need to move TWO columns forward, because we need to point to the end of the current column,
+# but we're currently pointed at the end of the column before the previous column
+rbo next_col_rbo:0
+
+# handle the bottommost row specially
+# note that the bottommost row should NEVER be positive, since positive means that the row
+# below is either green or red
+@jle ~0 0 &bottom_column_valid
+@cpy __LINE__ assertion_failed_line
+@jmp &assertion_failed
+bottom_column_valid:
+
+lt ~0 0 run_length
+@cpy run_length:0 gridv_write_ptr_1:~0
+
+# we've just handled the bottommost row, so there's 1 fewer row than that left to handle
+rbo up_one_row:-1
+add grid_height -1 y_left
+
+next_row:
+# if the column is empty, it's empty
+jt ~0 &not_empty
+# if grid[y][x] == 0, then  (x, y) outside the polygon.
+@cpy 0 run_length
+@jmp &write_run_length
+
+not_empty:
+# if grid[y][x] is positive, then the run continues
+@jgt ~0 0 &continuation
+# if grid[y][x] is negative, there might be an interruption
+# but run_length is zero, we don't need to bother; we can treat it as a continuation of a run of length zero
+jf run_length &continuation
+
+# okay, here's where it gets tricky: We are sitting on a "bottom edge".  Below us is a "top edge".
+# we need to check if those two edges are adjacent.
+add y_left y_map_start below_row_map_read_ptr
+add below_row_map_read_ptr 1 cur_row_map_read_ptr
+add below_row_map_read_ptr:*0 -1 expected_cur_row_map
+@jeq cur_row_map_read_ptr:*0 expected_cur_row_map:0 &continuation
+
+# okay, they aren't actually adjacent. reset the run length to 0
+@cpy 0 run_length 
+
+continuation:
+add run_length 1 run_length
+
+write_run_length:
+@cpy run_length gridv_write_ptr_2:~0
+rbo up_one_row
+add y_left -1 y_left
+jt y_left:0 &next_row
+
+add x_left -1 x_left
+jt x_left:0 &next_column
+
+rbo 1
+
+@endfn
+
+mul grid_start -1 grid_start_inv
+add &red_tiles grid_start_inv:0 pre_phase4_rbo
+rbo pre_phase4_rbo:0
 
 hlt
 
@@ -1923,7 +2025,7 @@ hlt
 # width of 2D grid, negative width of 2D grid
 @raw grid_width:  0
 @raw grid_height: 0
-@raw grid_size:   0 
+@raw grid_size:   0    grid_size_inv: 0
 # grid_start = address of 2D grid
 @raw grid_start: 0
 @raw gridh_start: 0
