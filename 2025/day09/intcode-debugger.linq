@@ -5,6 +5,7 @@
   <Namespace>System.Collections.Immutable</Namespace>
   <Namespace>System.Threading.Tasks</Namespace>
   <Namespace>System.Globalization</Namespace>
+  <Namespace>System.Runtime.InteropServices</Namespace>
 </Query>
 
 const bool WRITE_EXECLOG = true;
@@ -173,8 +174,12 @@ if (false) 		cpu.AddBreakpoint("fn_compute_answer__" + prefix + "line_loop",
 		var red_tiles_size = (int)ReadVariable(cpu, "red_tiles_size");
 		cpu.Memory.Skip(red_tiles_address).Take(red_tiles_size).Chunk(2).Select((c, i) => $"[{red_tiles_address + 2 * i}] ({c[0]}, {c[1]})").Dump("tile coordinates");
 		var grid_start = (int)ReadVariable(cpu, "grid_start");
+		var grid_size = (int)ReadVariable(cpu, "grid_size");
 		var grid_width = (int)ReadVariable(cpu, "grid_width");
 		var grid_height = (int)ReadVariable(cpu, "grid_height");
+		var gridv_start = (int)ReadVariable(cpu, "gridv_start");
+		var gridh_start = (int)ReadVariable(cpu, "gridh_start");
+		
 		if (grid_width > 0)
 		{
 			var x_map_start = (int)ReadVariable(cpu, "x_map_start");
@@ -198,6 +203,12 @@ if (false) 		cpu.AddBreakpoint("fn_compute_answer__" + prefix + "line_loop",
 			sb.AppendLine();
 		}
 		sb.ToString().Dump("Graph");
+
+		if (gridv_start != 0 && gridh_start != 0)
+		{
+			FlatArrayTo2D<memval_t>(cpu.Memory.AsSpan(gridh_start, grid_size), grid_width).Dump("gridh");
+			FlatArrayTo2D<memval_t>(cpu.Memory.AsSpan(gridv_start, grid_size), grid_width).Dump("gridv");
+		}
 		//cpu.Memory.Skip(_name2Addr["boxes"]).Take(size).Dump("boxes data");
 	}
 	finally
@@ -205,6 +216,16 @@ if (false) 		cpu.AddBreakpoint("fn_compute_answer__" + prefix + "line_loop",
 		//string.Join("\r\n", Last1000Instructions).Dump();
 		ExecutionLogFile?.Dispose();
 	}
+}
+
+static T[,] FlatArrayTo2D<T>(ReadOnlySpan<T> buffer, int width)
+{
+	var height = buffer.Length / width;
+	if (buffer.Length != height * width) throw new Exception("buffer size (" + buffer.Length + ") is not a multiple of the row width (" + width + ")");
+	T[,] array2d = new T[height, width];
+	var span2d = MemoryMarshal.CreateSpan(ref array2d[0, 0], height * width);
+	buffer.CopyTo(span2d);
+	return array2d;
 }
 
 static bool ForceHalt = false;

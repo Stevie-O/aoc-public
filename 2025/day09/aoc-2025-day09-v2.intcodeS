@@ -819,7 +819,7 @@ hlt
 
 @reference compute_answer
 
-@fn naked compute_answer() global(red_tiles, red_tiles_count, grid_start, grid_width, part1_answer, part2_answer, x_map_start, y_map_start)
+@fn naked compute_answer() global(red_tiles, red_tiles_count, grid_start, grid_width, part1_answer, part2_answer, x_map_start, y_map_start, gridh_start, gridv_start)
 
 mul &red_tiles -1 red_tiles_neg
 add red_tiles_neg:0 grid_start grid_rb_offset
@@ -899,6 +899,13 @@ not_new_part1_answer:
 # okay, we now need to check if all of the tiles that make up the perimeter of (x1, y1)-(x2, y2)
 # are inside the polygon
 
+mul x1 -1 x1_inv
+mul y1 -1 y1_inv
+add x1_inv:0 x2 dx
+add y1_inv:0 y2 dy
+add dx 1 dx
+add dy 1 dy
+
 ###################################################################################
 #
 #                            PART 2 VALIDITY CHECK
@@ -908,183 +915,28 @@ not_new_part1_answer:
 mul y1 grid_width y1_offset
 mul y2 grid_width y2_offset
 
-###########################################################
-# verify that (x1, y1) is on the inside of the perimeter
+add y1_offset x1 x1y1_offset
+add y1_offset x2 x2y1_offset
+add y2_offset x1 x1y2_offset
 
-@setpattern top_corner_direct_
+# Check the TOP line from (x1, y1) to (x2, y1)
 
-# first, directly check for a tile at (x1, y1)
-add y1_offset x1 PATTERN__start_offset
-add PATTERN__start_offset:0 grid_rb_offset PATTERN__read_ptr
-jf PATTERN__read_ptr:~0 &goto_next_j
+# the top line is entirely within the program if the horizontal run length is >= dx 
+add x1y1_offset:0 gridh_start top_line_read_ptr
+# the top line is valid if the run length 
+@jlt top_line_read_ptr:*0 dx &goto_next_j
 
-@cpy 1 empty_is_green
+# check the LEFT line from (x1, y1) to (x1, y2)
+add x1y1_offset gridv_start left_line_read_ptr
+@jlt left_line_read_ptr:*0 dy &goto_next_j
 
-###########################################################
-# check TOP line: (x1, y1) to (x2, y1)
+# check the BOTTOM line from (x1, y2) to (x2, y2)
+add x1y2_offset:0 gridh_start bottom_line_read_ptr
+@jlt bottom_line_read_ptr:*0 dx &goto_next_j
 
-@setpattern top_line_
-
-add y1_offset:0 x1 PATTERN__start_offset
-
-@cpy x1 current_x
-
-add x2 1 final_x
-add PATTERN__start_offset:0 grid_rb_offset:0 PATTERN__grid_read_ptr
-
-PATTERN__line_loop:
-@cpy PATTERN__grid_read_ptr:~0 grid_value
-
-jf grid_value:0 &PATTERN__is_empty
-
-# gap check
-jt empty_is_green &PATTERN__not_gap
-@reference PATTERN__continue_after_gap
-PATTERN__continue_after_gap:
-# see if the compressed (current_x-1) is adjacent to compressed (current_x)
-# if it is NOT, we skipped over a gap
-add x_map_start current_x PATTERN__read_xb_ptr
-add PATTERN__read_xb_ptr -1 PATTERN__read_xa_ptr
-add PATTERN__read_xa_ptr:*0 1 expected_coordinate
-@jne expected_coordinate:0 PATTERN__read_xb_ptr:*0 &goto_next_j
-PATTERN__not_gap:
-
-
-lt 0 grid_value empty_is_green
-@jmp &PATTERN__line_cont
-
-PATTERN__is_empty:
-# if empty_is_green is 0, this is not a valid rectangle for part 2
-jf empty_is_green:0 &goto_next_j
-PATTERN__line_cont:
-
-add current_x 1 current_x
-add PATTERN__grid_read_ptr 1 PATTERN__grid_read_ptr
-@jne current_x:0 final_x:0 &PATTERN__line_loop
-
-###########################################################
-# check LEFT line: (x1, y1) to (x1, y2)
-
-@setpattern left_line_
-
-add y1_offset x1 PATTERN__start_offset
-
-@cpy 1 empty_is_green
-@cpy y1 current_y
-add y2 1 final_y
-add PATTERN__start_offset:0 grid_rb_offset PATTERN__grid_read_ptr
-
-PATTERN__line_loop:
-@cpy PATTERN__grid_read_ptr:~0 grid_value
-
-jf grid_value &PATTERN__is_empty
-
-# gap check
-jt empty_is_green &PATTERN__not_gap
-@reference PATTERN__continue_after_gap
-PATTERN__continue_after_gap:
-# see if the compressed (current_y-1) is adjacent to compressed (current_y)
-# if it is NOT, we skipped over a gap
-add y_map_start current_y PATTERN__read_yb_ptr
-add PATTERN__read_yb_ptr -1 PATTERN__read_ya_ptr
-add PATTERN__read_ya_ptr:*0 1 expected_coordinate
-@jne expected_coordinate PATTERN__read_yb_ptr:*0 &goto_next_j
-PATTERN__not_gap:
-
-lt 0 grid_value empty_is_green
-@jmp &PATTERN__line_cont
-
-PATTERN__is_empty:
-# if empty_is_green is 0, this is not a valid rectangle for part 2
-jf empty_is_green &goto_next_j
-PATTERN__line_cont:
-
-add current_y 1 current_y
-add PATTERN__grid_read_ptr grid_width PATTERN__grid_read_ptr
-@jne current_y:0 final_y:0 &PATTERN__line_loop
-
-# at this point, we have verified that both (x2, y1) and (x1, y2) are are inside the polygon
-# therefore, we can (must, actually) initialize empty_is_green to 1 for the BOTTOM and RIGHT lines.
-
-###########################################################
-# check BOTTOM line: (x1, y2) to (x2, y2)
-
-@setpattern bottom_line_
-
-add y2_offset:0 x1 PATTERN__start_offset
-
-@cpy 1 empty_is_green
-@cpy x1 current_x
-add PATTERN__start_offset:0 grid_rb_offset PATTERN__grid_read_ptr
-
-PATTERN__line_loop:
-@cpy PATTERN__grid_read_ptr:~0 grid_value
-
-jf grid_value &PATTERN__is_empty
-
-# gap check
-jt empty_is_green &PATTERN__not_gap
-@reference PATTERN__continue_after_gap
-PATTERN__continue_after_gap:
-# see if the compressed (current_x-1) is adjacent to compressed (current_x)
-# if it is NOT, we skipped over a gap
-add x_map_start current_x PATTERN__read_xb_ptr
-add PATTERN__read_xb_ptr -1 PATTERN__read_xa_ptr
-add PATTERN__read_xa_ptr:*0 1 expected_coordinate
-@jne expected_coordinate PATTERN__read_xb_ptr:*0 &goto_next_j
-PATTERN__not_gap:
-
-lt 0 grid_value empty_is_green
-@jmp &PATTERN__line_cont
-
-PATTERN__is_empty:
-# if empty_is_green is 0, this is not a valid rectangle for part 2
-jf empty_is_green &goto_next_j
-PATTERN__line_cont:
-
-add current_x 1 current_x
-add PATTERN__grid_read_ptr 1 PATTERN__grid_read_ptr
-@jne current_x final_x &PATTERN__line_loop
-
-###########################################################
-# check RIGHT line: (x2, y1) to (x2, y2)
-
-@setpattern right_line_
-
-add y1_offset x2 PATTERN__start_offset
-
-@cpy 1 empty_is_green
-@cpy y1 current_y
-add PATTERN__start_offset:0 grid_rb_offset PATTERN__grid_read_ptr
-
-PATTERN__line_loop:
-@cpy PATTERN__grid_read_ptr:~0 grid_value
-
-jf grid_value &PATTERN__is_empty
-
-# gap check
-jt empty_is_green &PATTERN__not_gap
-@reference PATTERN__continue_after_gap
-PATTERN__continue_after_gap:
-# see if the compressed (current_y-1) is adjacent to compressed (current_y)
-# if it is NOT, we skipped over a gap
-add y_map_start current_y PATTERN__read_yb_ptr
-add PATTERN__read_yb_ptr -1 PATTERN__read_ya_ptr
-add PATTERN__read_ya_ptr:*0 1 expected_coordinate
-@jne expected_coordinate PATTERN__read_yb_ptr:*0 &goto_next_j
-PATTERN__not_gap:
-
-lt 0 grid_value empty_is_green
-@jmp &PATTERN__line_cont
-
-PATTERN__is_empty:
-# if empty_is_green is 0, this is not a valid rectangle for part 2
-jf empty_is_green &goto_next_j
-PATTERN__line_cont:
-
-add current_y 1 current_y
-add PATTERN__grid_read_ptr grid_width PATTERN__grid_read_ptr
-@jne current_y final_y &PATTERN__line_loop
+# check the RIGHT line from (x2, y1) to (x2, y2)
+add x2y1_offset:0 gridv_start right_line_read_ptr
+@jlt right_line_read_ptr:*0 dy &goto_next_j
 
 # end of checking
 @clearpattern
