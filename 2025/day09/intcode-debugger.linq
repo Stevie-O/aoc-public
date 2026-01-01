@@ -8,23 +8,24 @@
   <Namespace>System.Runtime.InteropServices</Namespace>
 </Query>
 
-const bool WRITE_EXECLOG = true;
+const bool FULL_EXECLOG = false;
+const bool SAVE_EXECLOG = true;
 const bool TRACE_INPUT = true;
 const bool WRITE_OUTPUT_LOG = false;
 
 const string OUTPUT_LOG_NAME = "output.txt";
 const string INPUT_FILE_PATH =
 	//"example.txt"
-	//"../../puzzle_inputs/2025-09.txt"
-	"testcase-1.txt"
+	"../../puzzle_inputs/2025-09.txt"
+	//"testcase-1.txt"
 	//"hostile-testcase-1.txt"
 	//"hostile-testcase-2.txt"
 	;
 // reverse the lines in the input file
-const bool REVERSE_INPUT_LINES = true;
+const bool REVERSE_INPUT_LINES = false;
 const int INSTRUCTION_LIMIT =
 	//1_000_000_000
-	100_000_000
+	50_000_000
 	;
 static (int address, memval_t value)[] memory_patches = {
 	//(1, 10), // 1=part1_limit.  for the example, part 1 limit is 10, not 1000
@@ -53,6 +54,9 @@ void Main()
 		bpout.WriteLine();
 		ForceHalt = true;
 	});
+
+	cpu.AddBreakpoint("compute_gridh", _ => Console.WriteLine("compute_gridh reached"));
+	cpu.AddBreakpoint("compute_gridv", _ => Console.WriteLine("compute_gridv reached"));
 
 	if (false) cpu.AddBreakpoint("fn_compute_gridh__write_run_length", c =>
 	{
@@ -147,13 +151,17 @@ if (false) 		cpu.AddBreakpoint("fn_compute_answer__" + prefix + "line_loop",
 		PrintOutput
 	);
 
+	string logFilePath = Path.Combine(Path.GetDirectoryName(Util.CurrentQueryPath), @"intcode-execlog.txt");
 	try
 	{
-		if (WRITE_EXECLOG) ExecutionLogFile = new ExecutionLogFileWriter(new StreamWriter(
-				Path.Combine(Path.GetDirectoryName(Util.CurrentQueryPath), @"intcode-execlog.txt"), false, new UTF8Encoding(false))
-				);
+		if (FULL_EXECLOG)
+			ExecutionLogWriter = new ExecutionLogFileWriter(new StreamWriter(logFilePath, false, new UTF8Encoding(false)));
+		else if (SAVE_EXECLOG)
+			ExecutionLogWriter = new ExecutionLogFileWriter(TextWriter.Null);
+		else
+			ExecutionLogWriter = null;
+			
 		RunUntilHalt(cpu, instruction_limit: INSTRUCTION_LIMIT);
-
 
 		(new string[] {
 			"red_tiles_size",
@@ -178,7 +186,7 @@ if (false) 		cpu.AddBreakpoint("fn_compute_answer__" + prefix + "line_loop",
 			.Dump("Key globals");
 		var red_tiles_address = _name2Addr["red_tiles"];
 		var red_tiles_size = (int)ReadVariable(cpu, "red_tiles_size");
-		cpu.Memory.Skip(red_tiles_address).Take(red_tiles_size).Chunk(2).Select((c, i) => $"[{red_tiles_address + 2 * i}] ({c[0]}, {c[1]})").Dump("tile coordinates");
+		//cpu.Memory.Skip(red_tiles_address).Take(red_tiles_size).Chunk(2).Select((c, i) => $"[{red_tiles_address + 2 * i}] ({c[0]}, {c[1]})").Dump("tile coordinates");
 		var grid_start = (int)ReadVariable(cpu, "grid_start");
 		var grid_size = (int)ReadVariable(cpu, "grid_size");
 		var grid_width = (int)ReadVariable(cpu, "grid_width");
@@ -186,12 +194,12 @@ if (false) 		cpu.AddBreakpoint("fn_compute_answer__" + prefix + "line_loop",
 		var gridv_start = (int)ReadVariable(cpu, "gridv_start");
 		var gridh_start = (int)ReadVariable(cpu, "gridh_start");
 		
-		if (grid_width > 0)
+		if (false && grid_width > 0)
 		{
 			var x_map_start = (int)ReadVariable(cpu, "x_map_start");
 			cpu.Memory.Skip(x_map_start).Take(grid_width).Dump("X decompression map");
 		}
-		if (grid_height > 0)
+		if (false && grid_height > 0)
 		{
 			var y_map_start = (int)ReadVariable(cpu, "y_map_start");
 			cpu.Memory.Skip(y_map_start).Take(grid_height).Dump("Y decompression map");
@@ -224,7 +232,7 @@ if (false) 		cpu.AddBreakpoint("fn_compute_answer__" + prefix + "line_loop",
 		}
 		sb.ToString().Dump("Graph");
 
-		if (gridv_start != 0 && gridh_start != 0)
+		if (false && gridv_start != 0 && gridh_start != 0)
 		{
 			FlatArrayTo2D<memval_t>(cpu.Memory.AsSpan(gridh_start, grid_size), grid_width).Dump("gridh");
 			FlatArrayTo2D<memval_t>(cpu.Memory.AsSpan(gridv_start, grid_size), grid_width).Dump("gridv");
@@ -233,8 +241,15 @@ if (false) 		cpu.AddBreakpoint("fn_compute_answer__" + prefix + "line_loop",
 	}
 	finally
 	{
+		if (SAVE_EXECLOG)
+		{
+			using (var sw = new StreamWriter(logFilePath, false, new UTF8Encoding(false)))
+			{
+				ExecutionLogWriter?.SaveRecentMessagesTo(sw);
+			}
+		}
 		//string.Join("\r\n", Last1000Instructions).Dump();
-		ExecutionLogFile?.Dispose();
+		ExecutionLogWriter?.Dispose();
 	}
 }
 
@@ -335,16 +350,16 @@ class BreakpointOutput : IDisposable
 {
 	public BreakpointOutput()
 	{
-		ExecutionLogFile?.WriteLine("");
+		ExecutionLogWriter?.WriteLine("");
 	}
 
 	public void WriteLine() => WriteLine("");
-	public void WriteLine(string message) { Console.WriteLine(message); ExecutionLogFile?.WriteLine(message); }
-	public void WriteLine(string format, params object[] args) { Console.WriteLine(format, args); ExecutionLogFile?.WriteLine(format, args); }
+	public void WriteLine(string message) { Console.WriteLine(message); ExecutionLogWriter?.WriteLine(message); }
+	public void WriteLine(string format, params object[] args) { Console.WriteLine(format, args); ExecutionLogWriter?.WriteLine(format, args); }
 
 	public void Dispose()
 	{
-		ExecutionLogFile?.WriteLine("");
+		ExecutionLogWriter?.WriteLine("");
 	}
 }
 
@@ -639,27 +654,38 @@ static string DescribeAddress(int address, int rb)
 	return sb.ToString();
 }
 
+//static bool EnableExecTraceLog = true;
 const int MaxTraceLog = 40_000;
-static ExecutionLogFileWriter ExecutionLogFile = null;
+static ExecutionLogFileWriter ExecutionLogWriter = null;
 class ExecutionLogFileWriter : IDisposable
 {
 	int instr_num = 0;
-	Queue<string> Last1000Instructions = new Queue<string>();
+	Queue<string> RecentLogMessages = new Queue<string>();
 	TextWriter ExecutionLogFile => _logFile;
 
 	TextWriter _logFile;
 	public void Dispose() { _logFile.Dispose(); }
 	public void Flush() { _logFile.Flush(); }
 	public ExecutionLogFileWriter(TextWriter logFile) { _logFile = logFile ?? throw new ArgumentNullException(nameof(logFile)); }
-	public void WriteLine(string message) => _logFile.WriteLine(message);
-	public void WriteLine(string format, params object[] args) => _logFile.WriteLine(format, args);
+	public void WriteLine(string message) => WriteEntry(message);
+	public void WriteLine(string format, params object[] args) => WriteEntry(string.Format(format, args));
 	public void LogExecutionMessage(string message)
 	{
 		++instr_num;
 		var full_message = "{" + instr_num + "} " + message;
-		ExecutionLogFile?.WriteLine(full_message);
-		Last1000Instructions.Enqueue(full_message);
-		if (Last1000Instructions.Count > MaxTraceLog) Last1000Instructions.Dequeue();
+		WriteEntry(full_message);
+	}
+	void WriteEntry(string full_message)
+	{
+		_logFile.WriteLine(full_message);
+		RecentLogMessages.Enqueue(full_message);
+		if (RecentLogMessages.Count > MaxTraceLog) RecentLogMessages.Dequeue();
+	}
+	
+	public void SaveRecentMessagesTo(TextWriter tw)
+	{
+		foreach (var msg in RecentLogMessages)
+			tw.WriteLine(msg);
 	}
 }
 
@@ -718,8 +744,8 @@ IntcodeCpu RunUntilHalt(IntcodeCpu cpu, bool print_exectime_info = true, int ins
 			break;
 		}
 		if (--limit <= 0) throw new Exception("cpu rlimit exceeded");
-		if (ExecutionLogFile != null && _addr2Name.TryGetValue(cpu.Pc, out var name))
-			ExecutionLogFile.WriteLine("## {0}", name);
+		if (ExecutionLogWriter != null && _addr2Name.TryGetValue(cpu.Pc, out var name))
+			ExecutionLogWriter.WriteLine("## {0}", name);
 		cpu = cpu.ExecuteInstruction();
 		instrcount++;
 	}
@@ -810,7 +836,7 @@ readonly struct IntcodeInput
 		} while (value == '\0');
 
 		if (TRACE_INPUT)
-			ExecutionLogFile?.WriteLine("Read character: {0}",
+			ExecutionLogWriter?.WriteLine("Read character: {0}",
 					(value < 0x20) ? $"0x{value:x2}" : "'" + char.ConvertFromUtf32((int)value) + "'"
 				);
 
@@ -853,13 +879,13 @@ class IntcodeCpu
 	{
 		if (_breakpoints.TryGetValue(Pc, out var callback))
 		{
-			ExecutionLogFile?.Flush();
+			ExecutionLogWriter?.Flush();
 			callback(this);
-			ExecutionLogFile?.Flush();
+			ExecutionLogWriter?.Flush();
 		}
 		if (SingleStepMode)
 		{
-			ExecutionLogFile?.Flush();
+			ExecutionLogWriter?.Flush();
 			Util.Break();
 		}
 	}
@@ -951,7 +977,7 @@ class IntcodeCpu
 		var newToc = (int)(Toc + a);
 		trace.SetArguments(newToc);
 
-		if (ExecutionLogFile != null)
+		if (ExecutionLogWriter != null)
 		{
 			var sb = new StringBuilder();
 			sb.Append("New RB = ").Append(newToc);
@@ -959,7 +985,7 @@ class IntcodeCpu
 			if (toc_description != null)
 				sb.Append(" (").Append(toc_description).Append(")");
 
-			ExecutionLogFile.LogExecutionMessage(sb.ToString());
+			ExecutionLogWriter.LogExecutionMessage(sb.ToString());
 		}
 
 		this.Pc = pc;
@@ -1059,11 +1085,11 @@ class IntcodeCpu
 
 	IntcodeCpu WriteMemory(int newPc, int dest, memval_t value, ExecutionTrace trace = null)
 	{
-		ExecutionLogFile?.LogExecutionMessage(string.Format("Storing {0} at address {1}", value, DescribeAddress(dest, Toc)));
+		ExecutionLogWriter?.LogExecutionMessage(string.Format("Storing {0} at address {1}", value, DescribeAddress(dest, Toc)));
 		if (dest < 0) throw new Exception("attempt to write to negative memory address");
 		if (MemoryBreakPoints.Contains(dest))
 		{
-			ExecutionLogFile?.Flush();
+			ExecutionLogWriter?.Flush();
 			Console.WriteLine("Write to memory address {0}", dest);
 			Util.Break();
 		}
@@ -1131,7 +1157,7 @@ class IntcodeCpu
 
 		trace.SetArguments(a_ptr);
 
-		ExecutionLogFile?.WriteLine("Output: {0}", a);
+		ExecutionLogWriter?.WriteLine("Output: {0}", a);
 
 		//a.Dump("OUTPUT");
 		//		_last_output = a;
@@ -1221,7 +1247,7 @@ class IntcodeCpu
 			}
 		}
 		//Console.WriteLine(sb.ToString());
-		ExecutionLogFile?.LogExecutionMessage(sb.ToString());
+		ExecutionLogWriter?.LogExecutionMessage(sb.ToString());
 	}
 
 	public IntcodeCpu ExecuteInstruction()

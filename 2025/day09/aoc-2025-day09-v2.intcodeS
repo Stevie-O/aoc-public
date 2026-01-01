@@ -1,5 +1,5 @@
 jf 0 &start
-@raw raw_output: 0	 use_dle: 1  disable_compression:1
+@raw raw_output: 0	 use_dle: 1  disable_compression:0
 start: rbo &red_tiles
 # weird compiler quirk: it accepts "rbo heap_size:1" but not "rbo heap_size: 1". odd.
 rbo heap_size:0
@@ -579,6 +579,8 @@ rbo final_rbo:0
 #
 ###############################################################
 
+hlt
+
 @reference fill_interior
 @fn naked fill_interior() global(red_tiles, grid_start, grid_width, grid_height)
 
@@ -624,9 +626,6 @@ jt y_left:0 &next_row
 # search more efficient
 #
 ###############################################################
-
-hlt
-
 
 @reference compute_gridh
 @fn naked compute_gridh() global(red_tiles, grid_start, grid_width, grid_height, grid_size, grid_size_inv, x_map_start, assertion_failed_line, assertion_failed)
@@ -676,6 +675,9 @@ not_empty:
 # if grid[y][x] is negative, there might be an interruption
 # but run_length is zero, we don't need to bother; we can treat it as a continuation of a run of length zero
 jf run_length &continuation
+# if grid[y][x] is -2, then this tile is a bottom edge, and tiles below it are outside the polygon.
+# since we're doing a horizontal run, however, this counts as a continuation.
+@jeq ~0 -2 &continuation
 
 # okay, here's where it gets tricky: We are sitting on a "right edge".  To our right is a "left edge".
 # we need to check if those two edges are adjacent.
@@ -777,6 +779,9 @@ not_empty:
 # if grid[y][x] is negative, there might be an interruption
 # but run_length is zero, we don't need to bother; we can treat it as a continuation of a run of length zero
 jf run_length &continuation
+# if grid[y][x] is -1, then this tile is part of a vertical line, and tiles to the right are outside the polygon
+# since we're doing a vertical run, however, this counts as a continuation.
+@jeq ~0 -1 &continuation
 
 # okay, here's where it gets tricky: We are sitting on a "bottom edge".  Below us is a "top edge".
 # we need to check if those two edges are adjacent.
@@ -807,8 +812,6 @@ rbo 1
 mul grid_start -1 grid_start_inv
 add &red_tiles grid_start_inv:0 pre_phase4_rbo
 rbo pre_phase4_rbo:0
-
-hlt
 
 ###############################################################
 #
