@@ -9,7 +9,7 @@
 </Query>
 
 const bool FULL_EXECLOG = false;
-const bool SAVE_EXECLOG = true;
+const bool SAVE_EXECLOG = false;
 const bool TRACE_INPUT = true;
 const bool WRITE_OUTPUT_LOG = false;
 
@@ -55,8 +55,17 @@ void Main()
 		ForceHalt = true;
 	});
 
-	cpu.AddBreakpoint("compute_gridh", _ => Console.WriteLine("compute_gridh reached"));
-	cpu.AddBreakpoint("compute_gridv", _ => Console.WriteLine("compute_gridv reached"));
+	//cpu.AddBreakpoint("compute_gridh", _ => Console.WriteLine("compute_gridh reached"));
+	//cpu.AddBreakpoint("compute_gridv", _ => Console.WriteLine("compute_gridv reached"));
+
+	if (false)
+	{
+		var dc_draw_perimeter = new DumpContainer().Dump("draw_perimeter grid");
+		cpu.AddBreakpoint("fn_draw_perimeter__draw_next_line", c =>
+		{
+			dc_draw_perimeter.Content = DrawDay9Grid(c);
+		});
+	}
 
 	if (false) cpu.AddBreakpoint("fn_compute_gridh__write_run_length", c =>
 	{
@@ -108,23 +117,6 @@ void Main()
 			sb.Append(" (PART2 ANSWER)");
 		bpout.WriteLine(sb.ToString());
 	});
-	foreach (var prefix in new string[] { "top_line_", "bottom_line_", "left_line_", "right_line_" })
-	{
-if (false) 		cpu.AddBreakpoint("fn_compute_answer__" + prefix + "line_loop",
-			c =>
-			{ 
-				using var bpout = new BreakpointOutput();
-				var grid_start = (int)ReadVariable(c, "grid_start");
-				var grid_width = (int)ReadVariable(c, "grid_width");
-				var read_ptr = cpu.Toc + (int)ReadVariable(c, "fn_compute_answer__" + prefix + "grid_read_ptr");
-				var grid_offset = read_ptr - grid_start;
-				var sb = new StringBuilder();
-				sb.AppendFormat(prefix + ": grid_read_ptr will access x={1}, y={0}", grid_offset / grid_width, grid_offset % grid_width);
-				var value = cpu.Memory[read_ptr];
-				sb.AppendFormat(" (value = {0}, empty_is_green = {1})", value, ReadVariable(c, "fn_compute_answer__empty_is_green"));
-				bpout.WriteLine(sb.ToString());
-			});
-	}
 
 	StreamWriter stdout_file;
 	if (WRITE_OUTPUT_LOG)
@@ -204,33 +196,7 @@ if (false) 		cpu.AddBreakpoint("fn_compute_answer__" + prefix + "line_loop",
 			var y_map_start = (int)ReadVariable(cpu, "y_map_start");
 			cpu.Memory.Skip(y_map_start).Take(grid_height).Dump("Y decompression map");
 		}
-		var sb = new StringBuilder((grid_width + Environment.NewLine.Length) * grid_height);
-		for (int r = 0, addr = grid_start; r < grid_height; r++)
-		{
-			for (int c = 0; c < grid_width; c++, addr++)
-			{
-				var val = cpu.Memory[addr];
-				var ch = val switch
-				{
-					0 => '.',
-					-1 => '<',
-					-2 => '^',
-					-3 => 'E',
-					// the following line looks screwy
-					>= 0 => '#', 
-					_ => '?',
-				};
-					
-					sb.Append(ch);
-				/*
-				if (val == 0) sb.Append('.');
-				else if (val < 0) sb.Append('E');
-				else sb.Append('#');
-				*/
-			}
-			sb.AppendLine();
-		}
-		sb.ToString().Dump("Graph");
+		DrawDay9Grid(cpu).Dump("Graph");
 
 		if (false && gridv_start != 0 && gridh_start != 0)
 		{
@@ -253,6 +219,40 @@ if (false) 		cpu.AddBreakpoint("fn_compute_answer__" + prefix + "line_loop",
 	}
 }
 
+string DrawDay9Grid(IntcodeCpu cpu)
+{
+	int grid_start = (int) ReadVariable(cpu, "grid_start");
+	int grid_width = (int) ReadVariable(cpu, "grid_width");
+	int grid_height = (int) ReadVariable(cpu, "grid_height");
+	var sb = new StringBuilder((grid_width + Environment.NewLine.Length) * grid_height);
+	for (int r = 0, addr = grid_start; r < grid_height; r++)
+	{
+		for (int c = 0; c < grid_width; c++, addr++)
+		{
+			var val = cpu.Memory[addr];
+			var ch = val switch
+			{
+				0 => '.',
+				-1 => '<',
+				-2 => '^',
+				-3 => 'E',
+				// the following line looks screwy
+				>= 0 => '#',
+				_ => '?',
+			};
+
+			sb.Append(ch);
+			/*
+			if (val == 0) sb.Append('.');
+			else if (val < 0) sb.Append('E');
+			else sb.Append('#');
+			*/
+		}
+		sb.AppendLine();
+	}
+	return sb.ToString();
+}
+
 static T[,] FlatArrayTo2D<T>(ReadOnlySpan<T> buffer, int width)
 {
 	var height = buffer.Length / width;
@@ -264,6 +264,7 @@ static T[,] FlatArrayTo2D<T>(ReadOnlySpan<T> buffer, int width)
 }
 
 static bool ForceHalt = false;
+static bool DoForceHalt() { ForceHalt = true; return true;}
 
 void DebugTileCoordinates(string breakpoint_name, IntcodeCpu cpu)
 {
@@ -690,7 +691,7 @@ class ExecutionLogFileWriter : IDisposable
 }
 
 TextWriter OutputTextWriter = Console.Out;
-bool OutputLiterals = true;
+bool OutputLiterals = false;
 
 bool dle_received = false;
 const byte DLE = 16;

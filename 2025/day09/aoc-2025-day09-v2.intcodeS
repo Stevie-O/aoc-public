@@ -135,16 +135,16 @@ add same_x same_y same_xy
 
 @reference compute_final_dx
 @fn naked compute_final_dx() global(first_red_x, final_dx)
-lt first_red_x ~-2 dx_positive
-lt ~-2 first_red_x dx_negative
+lt ~-2 first_red_x dx_positive
+lt first_red_x ~-2 dx_negative
 mul dx_negative -1 dx_negative
 add dx_positive:0 dx_negative:0 final_dx
 @endfn
 
 @reference compute_final_dy
 @fn naked compute_final_dy() global(first_red_y, final_dy)
-lt first_red_y ~-1 dy_positive
-lt ~-1 first_red_y dy_negative
+lt ~-1 first_red_y dy_positive
+lt first_red_y ~-1 dy_negative
 # NOTE: during processing, we're going to flip the Y-axis so that Y *decreases* as you go downward
 # thus, we need to make dy_positive be -1 and dy_negative be 1
 mul dy_positive -1 dy_positive
@@ -578,8 +578,6 @@ rbo final_rbo:0
 # search more efficient
 #
 ###############################################################
-
-hlt
 
 @reference fill_interior
 @fn naked fill_interior() global(red_tiles, grid_start, grid_width, grid_height)
